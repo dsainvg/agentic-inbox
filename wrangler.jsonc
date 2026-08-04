@@ -10,7 +10,7 @@
 		"nodejs_compat"
 	],
 	"vars": {
-		"DOMAINS": "example.com",
+		"DOMAINS": "dsainvg.dpdns.org, dsainvg.me, durgasai.dpdns.org, nervi.dpdns.org, rupya.dpdns.org, timio.dpdns.org",
 		"EMAIL_ADDRESSES": []
 	},
 	"d1_databases": [

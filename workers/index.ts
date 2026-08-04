@@ -43,10 +43,21 @@ function intQuery(c: AppContext | Context, key: string): number | undefined {
 	return Number.isNaN(n) ? undefined : n;
 }
 
-function boolQuery(c: AppContext | Context, key: string): boolean | undefined {
-	const v = c.req.query(key);
-	if (v === undefined || v === "") return undefined;
-	return v === "true" || v === "1";
+function isDomainAllowed(email: string, envDomainsRaw?: string): boolean {
+	if (!envDomainsRaw) return true;
+	const allowed = envDomainsRaw
+		.split(",")
+		.map((d) => d.trim().toLowerCase())
+		.filter(Boolean);
+	if (allowed.length === 0) return true;
+
+	const parts = email.toLowerCase().split("@");
+	if (parts.length < 2) return false;
+	const emailDomain = parts[1];
+
+	return allowed.some(
+		(domain) => emailDomain === domain || emailDomain.endsWith(`.${domain}`),
+	);
 }
 
 const app = new Hono<MailboxContext>();
@@ -106,6 +117,10 @@ app.post("/api/v1/mailboxes", async (c) => {
 		await c.req.json(),
 	);
 	const email = rawEmail.toLowerCase();
+
+	if (!isDomainAllowed(email, c.env.DOMAINS)) {
+		return c.json({ error: "Email domain is not in configured DOMAINS list" }, 403);
+	}
 
 	const existing = await db
 		.select()
