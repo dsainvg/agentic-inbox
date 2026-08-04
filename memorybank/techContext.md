@@ -45,6 +45,9 @@ npm install
 # Start development server
 npm run dev
 
+# Clear Vite cache directory if dependency optimization issues occur
+rmdir -r -fo node_modules\.vite
+
 # Run TypeScript type check
 npx -p typescript tsc --noEmit
 
