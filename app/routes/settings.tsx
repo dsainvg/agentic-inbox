@@ -3,10 +3,19 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/kumo";
-import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
+import {
+	RobotIcon,
+	ArrowCounterClockwiseIcon,
+	KeyIcon,
+	TrashIcon,
+	CopyIcon,
+	CheckIcon,
+	CodeIcon,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
+import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "~/queries/api-keys";
 
 // Placeholder shown in the textarea when no custom prompt is set.
 // The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
@@ -18,13 +27,23 @@ export default function SettingsRoute() {
 	const { data: mailbox } = useMailbox(mailboxId);
 	const updateMailboxMutation = useUpdateMailbox();
 
+	const { data: apiKeys, isLoading: isLoadingKeys } = useApiKeys(mailboxId);
+	const createApiKeyMutation = useCreateApiKey();
+	const deleteApiKeyMutation = useDeleteApiKey();
+
 	const [displayName, setDisplayName] = useState("");
+	const [forwardTo, setForwardTo] = useState("");
 	const [agentPrompt, setAgentPrompt] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
+
+	const [keyDescription, setKeyDescription] = useState("");
+	const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+	const [copied, setCopied] = useState(false);
 
 	useEffect(() => {
 		if (mailbox) {
 			setDisplayName(mailbox.settings?.fromName || mailbox.name || "");
+			setForwardTo(mailbox.forwardTo || "");
 			setAgentPrompt(mailbox.settings?.agentSystemPrompt || "");
 		}
 	}, [mailbox]);
@@ -38,7 +57,12 @@ export default function SettingsRoute() {
 			agentSystemPrompt: agentPrompt.trim() || undefined,
 		};
 		try {
-			await updateMailboxMutation.mutateAsync({ mailboxId, settings });
+			await updateMailboxMutation.mutateAsync({
+				mailboxId,
+				name: displayName,
+				forwardTo: forwardTo.trim() || undefined,
+				settings,
+			});
 			toastManager.add({ title: "Settings saved!" });
 		} catch {
 			toastManager.add({
@@ -54,6 +78,45 @@ export default function SettingsRoute() {
 		setAgentPrompt("");
 	};
 
+	const handleCreateKey = async () => {
+		if (!mailboxId || !keyDescription.trim()) return;
+		try {
+			const result = await createApiKeyMutation.mutateAsync({
+				mailboxId,
+				name: keyDescription.trim(),
+			});
+			setNewlyCreatedKey(result.key);
+			setKeyDescription("");
+			toastManager.add({ title: "API Key created successfully!" });
+		} catch {
+			toastManager.add({
+				title: "Failed to create API key",
+				variant: "error",
+			});
+		}
+	};
+
+	const handleDeleteKey = async (keyId: string) => {
+		if (!mailboxId) return;
+		try {
+			await deleteApiKeyMutation.mutateAsync({ mailboxId, keyId });
+			toastManager.add({ title: "API Key revoked" });
+		} catch {
+			toastManager.add({
+				title: "Failed to revoke API key",
+				variant: "error",
+			});
+		}
+	};
+
+	const handleCopyKey = () => {
+		if (newlyCreatedKey) {
+			navigator.clipboard.writeText(newlyCreatedKey);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		}
+	};
+
 	if (!mailbox) {
 		return (
 			<div className="flex justify-center py-20">
@@ -63,6 +126,8 @@ export default function SettingsRoute() {
 	}
 
 	const isCustomPrompt = agentPrompt.trim().length > 0;
+	const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+	const sampleCurlKey = newlyCreatedKey || "ag_key_sample123456789";
 
 	return (
 		<div className="max-w-2xl px-4 py-4 md:px-8 md:py-6 h-full overflow-y-auto">
@@ -81,6 +146,13 @@ export default function SettingsRoute() {
 							onChange={(e) => setDisplayName(e.target.value)}
 						/>
 						<Input label="Email" type="email" value={mailbox.email} disabled />
+						<Input
+							label="Forwarding Email Address"
+							type="email"
+							placeholder="e.g. personal@example.com (optional)"
+							value={forwardTo}
+							onChange={(e) => setForwardTo(e.target.value)}
+						/>
 					</div>
 				</div>
 
@@ -124,6 +196,135 @@ export default function SettingsRoute() {
 						The prompt is sent as the system message to the AI model.
 						It controls the agent's personality, writing style, and behavior rules.
 					</p>
+				</div>
+
+				{/* API Keys & External GET Access */}
+				<div className="rounded-lg border border-kumo-line bg-kumo-base p-5">
+					<div className="flex items-center gap-2 mb-2">
+						<KeyIcon size={16} weight="duotone" className="text-kumo-subtle" />
+						<span className="text-sm font-medium text-kumo-default">
+							API Keys & External GET Access
+						</span>
+					</div>
+					<p className="text-xs text-kumo-subtle mb-4">
+						Generate API keys for <strong className="text-kumo-default">{mailbox.email}</strong> to fetch incoming emails via GET requests in external applications.
+					</p>
+
+					{/* Create API Key Form */}
+					<div className="flex items-end gap-2 mb-4">
+						<div className="flex-1">
+							<Input
+								label="Key Description / Name"
+								placeholder="e.g. Zapier Integration, Node.js Script"
+								value={keyDescription}
+								onChange={(e) => setKeyDescription(e.target.value)}
+							/>
+						</div>
+						<Button
+							variant="primary"
+							onClick={handleCreateKey}
+							loading={createApiKeyMutation.isPending}
+							disabled={!keyDescription.trim()}
+						>
+							Generate API Key
+						</Button>
+					</div>
+
+					{/* Newly Created Key Alert */}
+					{newlyCreatedKey && (
+						<div className="mb-4 rounded-md border border-green-500/30 bg-green-500/10 p-3">
+							<div className="flex items-center justify-between">
+								<span className="text-xs font-semibold text-green-700 dark:text-green-300">
+									New API Key Generated! Copy it now as it won't be shown again:
+								</span>
+								<Button
+									variant="ghost"
+									size="xs"
+									icon={copied ? <CheckIcon size={14} className="text-green-500" /> : <CopyIcon size={14} />}
+									onClick={handleCopyKey}
+								>
+									{copied ? "Copied!" : "Copy Key"}
+								</Button>
+							</div>
+							<div className="mt-2 font-mono text-xs text-kumo-default select-all bg-kumo-recessed p-2 rounded border border-kumo-line break-all">
+								{newlyCreatedKey}
+							</div>
+						</div>
+					)}
+
+					{/* Active Keys List */}
+					<div className="mt-4">
+						<h3 className="text-xs font-medium text-kumo-default mb-2">Active API Keys</h3>
+						{isLoadingKeys ? (
+							<div className="py-4 text-center">
+								<Loader size="sm" />
+							</div>
+						) : !apiKeys || apiKeys.length === 0 ? (
+							<p className="text-xs text-kumo-subtle py-2 italic border border-dashed border-kumo-line rounded-md text-center">
+								No API keys generated yet for this mailbox.
+							</p>
+						) : (
+							<div className="divide-y divide-kumo-line border border-kumo-line rounded-md bg-kumo-recessed">
+								{apiKeys.map((key) => (
+									<div key={key.id} className="flex items-center justify-between p-3 text-xs">
+										<div>
+											<div className="font-medium text-kumo-default">{key.name}</div>
+											<div className="font-mono text-kumo-subtle text-[11px] mt-0.5">
+												{key.keyPreview} • Created {new Date(key.createdAt).toLocaleDateString()}
+											</div>
+										</div>
+										<Button
+											variant="ghost"
+											size="xs"
+											icon={<TrashIcon size={14} className="text-red-500" />}
+											onClick={() => handleDeleteKey(key.id)}
+											loading={deleteApiKeyMutation.isPending}
+										>
+											Revoke
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+
+					{/* Documentation & Usage Snippet */}
+					<div className="mt-6 border-t border-kumo-line pt-4">
+						<div className="flex items-center gap-2 mb-2">
+							<CodeIcon size={14} className="text-kumo-subtle" />
+							<span className="text-xs font-medium text-kumo-default">
+								GET Request API Documentation
+							</span>
+						</div>
+						<p className="text-xs text-kumo-subtle mb-2">
+							Make a GET request to fetch email messages containing <code className="text-kumo-default font-mono">from</code> (sender), <code className="text-kumo-default font-mono">subject</code> (message title), and <code className="text-kumo-default font-mono">body</code> (message content):
+						</p>
+						<pre className="p-3 rounded-md bg-kumo-recessed border border-kumo-line font-mono text-[11px] text-kumo-default overflow-x-auto">
+{`# 1. Fetch recent inbox emails for ${mailbox.email}:
+curl -X GET "${currentOrigin}/api/v1/external/messages?apiKey=${sampleCurlKey}"
+
+# 2. Or pass API key in header:
+curl -X GET "${currentOrigin}/api/v1/external/messages" \\
+  -H "X-API-Key: ${sampleCurlKey}"
+
+# Response payload format:
+# {
+#   "mailbox": "${mailbox.email}",
+#   "totalCount": 1,
+#   "emails": [
+#     {
+#       "id": "...",
+#       "from": "sender@example.com",
+#       "subject": "Name of message / Subject",
+#       "body": "Mail message body content...",
+#       "date": "2026-08-04T12:00:00.000Z",
+#       "read": false,
+#       "starred": false
+#     }
+#   ]
+# }`}
+						</pre>
+					</div>
 				</div>
 
 				{/* Save */}

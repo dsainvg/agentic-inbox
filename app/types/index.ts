@@ -20,6 +20,7 @@ export interface Mailbox {
 	id: string;
 	email: string;
 	name: string;
+	forwardTo?: string;
 	settings?: MailboxSettings;
 }
 
@@ -63,4 +64,19 @@ export interface Folder {
 	id: string;
 	name: string;
 	unreadCount: number;
+}
+
+export interface ApiKeySummary {
+	id: string;
+	keyPreview: string;
+	name: string;
+	createdAt: string;
+}
+
+export interface ApiKeyRecord {
+	id: string;
+	key: string;
+	name: string;
+	mailboxId: string;
+	createdAt: string;
 }

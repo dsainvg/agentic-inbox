@@ -4,17 +4,40 @@
 
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
+export const mailboxes = sqliteTable("mailboxes", {
+	id: text("id").primaryKey(), // mailbox email e.g. hello@example.com
+	email: text("email").notNull().unique(),
+	name: text("name").notNull(),
+	forward_to: text("forward_to"),
+	settings: text("settings"), // JSON string
+	created_at: text("created_at").notNull(),
+});
+
+export const apiKeys = sqliteTable("api_keys", {
+	id: text("id").primaryKey(),
+	key: text("key").notNull().unique(),
+	name: text("name").notNull(),
+	mailbox_id: text("mailbox_id")
+		.notNull()
+		.references(() => mailboxes.id, { onDelete: "cascade" }),
+	created_at: text("created_at").notNull(),
+});
+
 export const folders = sqliteTable("folders", {
 	id: text("id").primaryKey(),
-	name: text("name").notNull().unique(),
+	mailbox_id: text("mailbox_id")
+		.notNull()
+		.references(() => mailboxes.id, { onDelete: "cascade" }),
+	name: text("name").notNull(),
 	is_deletable: integer("is_deletable").notNull().default(1),
 });
 
 export const emails = sqliteTable("emails", {
 	id: text("id").primaryKey(),
-	folder_id: text("folder_id")
+	mailbox_id: text("mailbox_id")
 		.notNull()
-		.references(() => folders.id, { onDelete: "cascade" }),
+		.references(() => mailboxes.id, { onDelete: "cascade" }),
+	folder_id: text("folder_id").notNull(),
 	subject: text("subject"),
 	sender: text("sender"),
 	recipient: text("recipient"),
@@ -29,16 +52,4 @@ export const emails = sqliteTable("emails", {
 	thread_id: text("thread_id"),
 	message_id: text("message_id"),
 	raw_headers: text("raw_headers"),
-});
-
-export const attachments = sqliteTable("attachments", {
-	id: text("id").primaryKey(),
-	email_id: text("email_id")
-		.notNull()
-		.references(() => emails.id, { onDelete: "cascade" }),
-	filename: text("filename").notNull(),
-	mimetype: text("mimetype").notNull(),
-	size: integer("size").notNull(),
-	content_id: text("content_id"),
-	disposition: text("disposition"),
 });

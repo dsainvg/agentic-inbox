@@ -40,9 +40,11 @@ export function useUpdateMailbox() {
 	return useMutation({
 		mutationFn: ({
 			mailboxId,
+			name,
+			forwardTo,
 			settings,
-		}: { mailboxId: string; settings: unknown }) =>
-			api.updateMailbox(mailboxId, settings),
+		}: { mailboxId: string; name?: string; forwardTo?: string; settings?: unknown }) =>
+			api.updateMailbox(mailboxId, { name, forwardTo, settings }),
 		onSuccess: (_data, { mailboxId }) => {
 			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.detail(mailboxId) });
 			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.all });

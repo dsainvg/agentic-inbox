@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import type { Email, Folder, Mailbox } from "~/types";
+import type { ApiKeyRecord, ApiKeySummary, Email, Folder, Mailbox } from "~/types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -105,8 +105,8 @@ const api = {
 		post<Mailbox>("/api/v1/mailboxes", { email, name, settings }),
 	getMailbox: (mailboxId: string) =>
 		get<Mailbox>(`/api/v1/mailboxes/${mailboxId}`),
-	updateMailbox: (mailboxId: string, settings: unknown) =>
-		put<Mailbox>(`/api/v1/mailboxes/${mailboxId}`, { settings }),
+	updateMailbox: (mailboxId: string, data: { name?: string; forwardTo?: string; settings?: unknown }) =>
+		put<Mailbox>(`/api/v1/mailboxes/${mailboxId}`, data),
 	deleteMailbox: (mailboxId: string) =>
 		del<void>(`/api/v1/mailboxes/${mailboxId}`),
 
@@ -160,6 +160,14 @@ const api = {
 	// Search
 	searchEmails: (mailboxId: string, params: Record<string, string>) =>
 		get<EmailListResponse | Email[]>(`/api/v1/mailboxes/${mailboxId}/search`, { params }),
+
+	// API Keys
+	listApiKeys: (mailboxId: string) =>
+		get<ApiKeySummary[]>(`/api/v1/mailboxes/${mailboxId}/api-keys`),
+	createApiKey: (mailboxId: string, name: string) =>
+		post<ApiKeyRecord>(`/api/v1/mailboxes/${mailboxId}/api-keys`, { name }),
+	deleteApiKey: (mailboxId: string, keyId: string) =>
+		del<void>(`/api/v1/mailboxes/${mailboxId}/api-keys/${keyId}`),
 };
 
 export default api;
