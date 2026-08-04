@@ -29,6 +29,8 @@ const DEPS_TO_OPTIMIZE = [
   "@tiptap/extension-text-align",
   "@tiptap/extension-text-style",
   "@tiptap/extension-underline",
+  "hono/cookie",
+  "jose",
 ];
 
 export default defineConfig({

@@ -53,3 +53,10 @@ export const emails = sqliteTable("emails", {
 	message_id: text("message_id"),
 	raw_headers: text("raw_headers"),
 });
+
+export const users = sqliteTable("users", {
+	id: text("id").primaryKey(), // "admin"
+	password_hash: text("password_hash").notNull(),
+	created_at: text("created_at").notNull(),
+});
+

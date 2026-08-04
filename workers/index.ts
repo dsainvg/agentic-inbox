@@ -4,6 +4,9 @@
 
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { SignJWT, jwtVerify } from "jose";
+import { hashPassword, generateSalt, verifyPassword, makePasswordHash } from "./lib/crypto";
 import PostalMime from "postal-mime";
 import { z } from "zod";
 import { drizzle } from "drizzle-orm/d1";
@@ -89,6 +92,164 @@ app.get("/api/v1/config", (c) => {
 		.filter(Boolean);
 	const emailAddresses = c.env.EMAIL_ADDRESSES ?? [];
 	return c.json({ domains, emailAddresses });
+});
+
+// -- Auth (D1) ------------------------------------------------------
+
+app.get("/api/v1/auth/me", async (c) => {
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+	
+	// Check if a user exists in the database
+	const existingUsers = await db.select().from(schema.users).limit(1);
+	const setupRequired = existingUsers.length === 0;
+
+	// Check if already authenticated by looking at the session cookie
+	const cookie = getCookie(c, "session");
+	let authenticated = false;
+	if (cookie) {
+		try {
+			const secret = new TextEncoder().encode(c.env.SESSION_SECRET || "default_session_secret_change_me");
+			await jwtVerify(cookie, secret);
+			authenticated = true;
+		} catch {}
+	}
+
+	return c.json({ authenticated, setupRequired });
+});
+
+app.post("/api/v1/auth/setup", async (c) => {
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+	
+	// Check if user table is already populated
+	const existingUsers = await db.select().from(schema.users).limit(1);
+	if (existingUsers.length > 0) {
+		return c.json({ error: "Setup already completed" }, 400);
+	}
+
+	const body = await c.req.json().catch(() => ({}));
+	const password = body.password;
+	if (!password || typeof password !== "string" || password.length < 8) {
+		return c.json({ error: "Password must be at least 8 characters long" }, 400);
+	}
+
+	const storedHash = await makePasswordHash(password);
+
+	await db.insert(schema.users).values({
+		id: "admin",
+		password_hash: storedHash,
+		created_at: new Date().toISOString(),
+	});
+
+	// Auto login on successful setup
+	const secret = new TextEncoder().encode(c.env.SESSION_SECRET || "default_session_secret_change_me");
+	const token = await new SignJWT({ id: "admin" })
+		.setProtectedHeader({ alg: "HS256" })
+		.setIssuedAt()
+		.setExpirationTime("7d")
+		.sign(secret);
+
+	setCookie(c, "session", token, {
+		httpOnly: true,
+		secure: true,
+		sameSite: "Lax",
+		path: "/",
+		maxAge: 7 * 24 * 60 * 60, // 7 days
+	});
+
+	return c.json({ success: true });
+});
+
+app.post("/api/v1/auth/login", async (c) => {
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const body = await c.req.json().catch(() => ({}));
+	const password = body.password;
+	if (!password || typeof password !== "string") {
+		return c.json({ error: "Password is required" }, 400);
+	}
+
+	const existingUsers = await db.select().from(schema.users).limit(1);
+	if (existingUsers.length === 0) {
+		return c.json({ error: "Setup required first" }, 400);
+	}
+
+	const admin = existingUsers[0];
+	const { valid, needsUpgrade } = await verifyPassword(password, admin.password_hash);
+	if (!valid) {
+		return c.json({ error: "Invalid password" }, 401);
+	}
+
+	// Transparently upgrade legacy SHA-256 hashes to v2 SHA-512/600k on login
+	if (needsUpgrade) {
+		const upgraded = await makePasswordHash(password);
+		await db.update(schema.users)
+			.set({ password_hash: upgraded })
+			.where(eq(schema.users.id, "admin"));
+	}
+
+	const secret = new TextEncoder().encode(c.env.SESSION_SECRET || "default_session_secret_change_me");
+	const token = await new SignJWT({ id: "admin" })
+		.setProtectedHeader({ alg: "HS256" })
+		.setIssuedAt()
+		.setExpirationTime("7d")
+		.sign(secret);
+
+	setCookie(c, "session", token, {
+		httpOnly: true,
+		secure: true,
+		sameSite: "Lax",
+		path: "/",
+		maxAge: 7 * 24 * 60 * 60, // 7 days
+	});
+
+	return c.json({ success: true });
+});
+
+app.post("/api/v1/auth/logout", (c) => {
+	deleteCookie(c, "session", {
+		path: "/",
+		secure: true,
+		sameSite: "Lax",
+	});
+	return c.json({ success: true });
+});
+
+app.post("/api/v1/auth/change-password", async (c) => {
+	// Session is already validated by the /api/v1/* middleware in app.ts
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const body = await c.req.json().catch(() => ({}));
+	const { currentPassword, newPassword } = body;
+
+	if (!currentPassword || typeof currentPassword !== "string") {
+		return c.json({ error: "Current password is required" }, 400);
+	}
+	if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
+		return c.json({ error: "New password must be at least 8 characters long" }, 400);
+	}
+
+	const existingUsers = await db.select().from(schema.users).limit(1);
+	if (existingUsers.length === 0) {
+		return c.json({ error: "No admin user found" }, 400);
+	}
+
+	const admin = existingUsers[0];
+	const { valid } = await verifyPassword(currentPassword, admin.password_hash);
+	if (!valid) {
+		return c.json({ error: "Current password is incorrect" }, 401);
+	}
+
+	// Hash new password with post-quantum v2 format
+	const newHash = await makePasswordHash(newPassword);
+	await db.update(schema.users)
+		.set({ password_hash: newHash })
+		.where(eq(schema.users.id, "admin"));
+
+	return c.json({ success: true });
 });
 
 // -- Mailboxes (D1) -------------------------------------------------

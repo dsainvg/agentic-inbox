@@ -62,6 +62,13 @@ export async function ensureDbInitialized(db: D1Database) {
 			db.prepare(`
 				CREATE INDEX IF NOT EXISTS idx_emails_mailbox_folder ON emails(mailbox_id, folder_id);
 			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS users (
+					id TEXT PRIMARY KEY,
+					password_hash TEXT NOT NULL,
+					created_at TEXT NOT NULL
+				);
+			`),
 		]);
 		dbInitialized = true;
 	} catch (e) {

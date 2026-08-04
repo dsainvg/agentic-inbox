@@ -20,6 +20,7 @@ import { Folders, SYSTEM_FOLDER_IDS } from "shared/folders";
 import { useCreateFolder, useFolders } from "~/queries/folders";
 import { useMailbox } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
+import api from "~/services/api";
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
 	[Folders.INBOX]: <TrayIcon size={18} weight="regular" />,
@@ -259,6 +260,26 @@ export default function Sidebar() {
 					</form>
 				</Dialog>
 			</Dialog.Root>
+
+			{/* Logout / Session Actions Footer */}
+			<div className="p-3 border-t border-kumo-line bg-kumo-surface">
+				<Button
+					variant="secondary"
+					size="sm"
+					className="w-full flex items-center justify-center gap-2"
+					onClick={async () => {
+						try {
+							await api.logout();
+							window.location.href = "/login";
+						} catch (err) {
+							console.error("Logout failed:", err);
+							window.location.href = "/login";
+						}
+					}}
+				>
+					Sign Out
+				</Button>
+			</div>
 		</aside>
 	);
 }

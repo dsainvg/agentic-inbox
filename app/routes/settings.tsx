@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
 import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "~/queries/api-keys";
+import api from "~/services/api";
 
 // Placeholder shown in the textarea when no custom prompt is set.
 // The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
@@ -39,6 +40,13 @@ export default function SettingsRoute() {
 	const [keyDescription, setKeyDescription] = useState("");
 	const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+
+	// Change password state
+	const [currentPassword, setCurrentPassword] = useState("");
+	const [newPassword, setNewPassword] = useState("");
+	const [confirmNewPassword, setConfirmNewPassword] = useState("");
+	const [isChangingPassword, setIsChangingPassword] = useState(false);
+	const [passwordError, setPasswordError] = useState("");
 
 	useEffect(() => {
 		if (mailbox) {
@@ -114,6 +122,32 @@ export default function SettingsRoute() {
 			navigator.clipboard.writeText(newlyCreatedKey);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
+		}
+	};
+
+	const handleChangePassword = async (e: React.FormEvent) => {
+		e.preventDefault();
+		setPasswordError("");
+		if (newPassword !== confirmNewPassword) {
+			setPasswordError("New passwords do not match.");
+			return;
+		}
+		if (newPassword.length < 8) {
+			setPasswordError("New password must be at least 8 characters.");
+			return;
+		}
+		setIsChangingPassword(true);
+		try {
+			await api.changePassword(currentPassword, newPassword);
+			setCurrentPassword("");
+			setNewPassword("");
+			setConfirmNewPassword("");
+			toastManager.add({ title: "Password updated successfully!" });
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : "Failed to change password";
+			setPasswordError(msg);
+		} finally {
+			setIsChangingPassword(false);
 		}
 	};
 
@@ -325,6 +359,57 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 # }`}
 						</pre>
 					</div>
+				</div>
+
+				{/* Save */}
+				{/* Change Password */}
+				<div className="mt-8 border-t border-kumo-line pt-6">
+					<div className="flex items-center gap-2 mb-4">
+						<KeyIcon size={16} className="text-kumo-subtle" />
+						<span className="text-sm font-semibold text-kumo-default">Change Password</span>
+						<Badge variant="secondary" className="text-[10px]">Post-Quantum SHA-512</Badge>
+					</div>
+					<form onSubmit={handleChangePassword} className="space-y-3 max-w-sm">
+						{passwordError && (
+							<div className="text-xs text-kumo-danger bg-kumo-danger-tint border border-kumo-danger rounded-md px-3 py-2">
+								{passwordError}
+							</div>
+						)}
+						<Input
+							label="Current Password"
+							type="password"
+							size="sm"
+							value={currentPassword}
+							onChange={(e) => setCurrentPassword(e.target.value)}
+							required
+						/>
+						<Input
+							label="New Password"
+							type="password"
+							size="sm"
+							placeholder="Minimum 8 characters"
+							value={newPassword}
+							onChange={(e) => setNewPassword(e.target.value)}
+							required
+						/>
+						<Input
+							label="Confirm New Password"
+							type="password"
+							size="sm"
+							placeholder="Repeat new password"
+							value={confirmNewPassword}
+							onChange={(e) => setConfirmNewPassword(e.target.value)}
+							required
+						/>
+						<Button
+							type="submit"
+							variant="secondary"
+							size="sm"
+							loading={isChangingPassword}
+						>
+							Update Password
+						</Button>
+					</form>
 				</div>
 
 				{/* Save */}

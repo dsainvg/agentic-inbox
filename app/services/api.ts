@@ -168,6 +168,18 @@ const api = {
 		post<ApiKeyRecord>(`/api/v1/mailboxes/${mailboxId}/api-keys`, { name }),
 	deleteApiKey: (mailboxId: string, keyId: string) =>
 		del<void>(`/api/v1/mailboxes/${mailboxId}/api-keys/${keyId}`),
+
+	// Auth
+	getAuthMe: () =>
+		get<{ authenticated: boolean; setupRequired: boolean }>("/api/v1/auth/me"),
+	setupAdmin: (password: string) =>
+		post<{ success: boolean }>("/api/v1/auth/setup", { password }),
+	login: (password: string) =>
+		post<{ success: boolean }>("/api/v1/auth/login", { password }),
+	logout: () =>
+		post<{ success: boolean }>("/api/v1/auth/logout"),
+	changePassword: (currentPassword: string, newPassword: string) =>
+		post<{ success: boolean }>("/api/v1/auth/change-password", { currentPassword, newPassword }),
 };
 
 export default api;

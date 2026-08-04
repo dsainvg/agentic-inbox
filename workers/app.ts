@@ -3,7 +3,8 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Hono } from "hono";
-import { jwtVerify, createRemoteJWKSet } from "jose";
+import { getCookie } from "hono/cookie";
+import { jwtVerify } from "jose";
 import { createRequestHandler } from "react-router";
 import { app as apiApp, receiveEmail, type InboundEmailEvent } from "./index";
 import type { Env } from "./types";
@@ -22,65 +23,42 @@ const requestHandler = createRequestHandler(
 	import.meta.env.MODE,
 );
 
-function getAccessUrls(teamDomain: string) {
-	const certsPath = "/cdn-cgi/access/certs";
-	const teamUrl = new URL(teamDomain);
-	const issuer = teamUrl.origin;
-	const certsUrl = teamUrl.pathname.endsWith(certsPath)
-		? teamUrl
-		: new URL(certsPath, issuer);
-
-	return { issuer, certsUrl };
-}
-
 // Main app that wraps the API and adds React Router fallback
 const app = new Hono<{ Bindings: Env }>();
 
-// Cloudflare Access JWT validation middleware (production only)
-app.use("*", async (c, next) => {
-	// Skip validation in development
-	if (import.meta.env.DEV) {
+// Session-based authentication middleware for API routes
+app.use("/api/v1/*", async (c, next) => {
+	const path = c.req.path;
+
+	// Bypass authentication for public API endpoints
+	if (
+		path === "/api/v1/auth/me" ||
+		path === "/api/v1/auth/login" ||
+		path === "/api/v1/auth/setup" ||
+		path === "/api/v1/auth/logout" ||
+		path.startsWith("/api/v1/external/")
+	) {
 		return next();
 	}
 
-	// Bypass Cloudflare Access for external API key authenticated endpoints
-	if (c.req.path.startsWith("/api/v1/external")) {
-		return next();
-	}
-
-	const { POLICY_AUD, TEAM_DOMAIN } = c.env;
-
-	// Fail closed in production if Access is not configured.
-	if (!POLICY_AUD || !TEAM_DOMAIN) {
-		return c.text(
-			"Cloudflare Access must be configured in production. Set POLICY_AUD and TEAM_DOMAIN.",
-			500,
-		);
-	}
-
-	const token = c.req.header("cf-access-jwt-assertion");
-	if (!token) {
-		return c.text("Missing required CF Access JWT", 403);
+	const cookie = getCookie(c, "session");
+	if (!cookie) {
+		return c.json({ error: "Unauthorized" }, 401);
 	}
 
 	try {
-		const { issuer, certsUrl } = getAccessUrls(TEAM_DOMAIN);
-		const JWKS = createRemoteJWKSet(certsUrl);
-		await jwtVerify(token, JWKS, {
-			issuer,
-			audience: POLICY_AUD,
-		});
+		const secret = new TextEncoder().encode(c.env.SESSION_SECRET || "default_session_secret_change_me");
+		await jwtVerify(cookie, secret);
+		return next();
 	} catch {
-		return c.text("Invalid or expired Access token", 403);
+		return c.json({ error: "Unauthorized" }, 401);
 	}
-
-	return next();
 });
 
 // Mount the API routes
 app.route("/", apiApp);
 
-// React Router catch-all: serves the SPA for all non-API routes
+// React Router catch-all: serves the SPA index.html for all non-API routes
 app.all("*", (c) => {
 	return requestHandler(c.req.raw, {
 		cloudflare: { env: c.env, ctx: c.executionCtx as ExecutionContext },
