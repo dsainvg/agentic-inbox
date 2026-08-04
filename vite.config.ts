@@ -48,13 +48,12 @@ export default defineConfig({
   optimizeDeps: {
     include: DEPS_TO_OPTIMIZE,
   },
+  build: {
+    // react-router's plugin expects the client manifest at build/client/.vite/manifest.json
+    // (its default buildDirectory is "build"). Align Vite's outDir to match.
+    outDir: "build",
+  },
   environments: {
-    agentic_inbox: {
-      optimizeDeps: {
-        include: DEPS_TO_OPTIMIZE,
-      },
-    },
-    // Also cover "ssr" name just in case
     ssr: {
       optimizeDeps: {
         include: DEPS_TO_OPTIMIZE,
