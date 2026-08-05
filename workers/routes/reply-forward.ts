@@ -9,6 +9,7 @@ import * as schema from "../db/schema";
 import type { MailboxContext } from "../lib/mailbox";
 import { ensureDbInitialized } from "../db/init";
 import { Folders } from "../../shared/folders";
+import { sendSmtpEmail } from "../lib/smtp";
 
 type AppContext = Context<MailboxContext>;
 
@@ -40,6 +41,34 @@ export async function handleSendEmail(c: AppContext) {
 	const bccStr = parseRecipientString(bcc);
 	const messageId = crypto.randomUUID();
 
+	let smtpStatus: { messageId?: string; warning?: string } = {};
+
+	if (c.env.SMTP_USER && c.env.SMTP_PASS) {
+		try {
+			const res = await sendSmtpEmail({
+				host: c.env.SMTP_HOST,
+				port: c.env.SMTP_PORT,
+				user: c.env.SMTP_USER,
+				pass: c.env.SMTP_PASS,
+				from: mailboxId,
+				to: recipientStr,
+				cc: ccStr || undefined,
+				bcc: bccStr || undefined,
+				replyTo: mailboxId,
+				subject: subject || "(no subject)",
+				html: html || undefined,
+				text: text || undefined,
+			});
+			smtpStatus.messageId = res.messageId;
+			console.log(`Successfully sent email via SMTP to ${recipientStr}: ${res.messageId}`);
+		} catch (err) {
+			console.error("Failed to send email via SMTP:", (err as Error).message);
+			smtpStatus.warning = `SMTP sending failed: ${(err as Error).message}`;
+		}
+	} else {
+		smtpStatus.warning = "SMTP credentials (SMTP_USER/SMTP_PASS) not configured. Saved in D1 only.";
+	}
+
 	await db.insert(schema.emails).values({
 		id: messageId,
 		mailbox_id: mailboxId,
@@ -54,10 +83,10 @@ export async function handleSendEmail(c: AppContext) {
 		read: 1,
 		starred: 0,
 		thread_id: messageId,
-		message_id: messageId,
+		message_id: smtpStatus.messageId || messageId,
 	});
 
-	return c.json({ id: messageId, status: "saved_in_d1", note: "Saved in D1 SENT folder." }, 201);
+	return c.json({ id: messageId, status: smtpStatus.messageId ? "sent" : "saved_in_d1", ...smtpStatus }, 201);
 }
 
 export async function handleReplyEmail(c: AppContext) {
@@ -99,6 +128,39 @@ export async function handleReplyEmail(c: AppContext) {
 	const bccStr = parseRecipientString(bcc);
 	const messageId = crypto.randomUUID();
 
+	const headers: Record<string, string> = {};
+	if (inReplyTo) headers["In-Reply-To"] = `<${inReplyTo}>`;
+	if (references.length > 0) headers["References"] = references.map((r) => `<${r}>`).join(" ");
+
+	let smtpStatus: { messageId?: string; warning?: string } = {};
+
+	if (c.env.SMTP_USER && c.env.SMTP_PASS) {
+		try {
+			const res = await sendSmtpEmail({
+				host: c.env.SMTP_HOST,
+				port: c.env.SMTP_PORT,
+				user: c.env.SMTP_USER,
+				pass: c.env.SMTP_PASS,
+				from: mailboxId,
+				to: recipientStr,
+				cc: ccStr || undefined,
+				bcc: bccStr || undefined,
+				replyTo: mailboxId,
+				subject: subject || `Re: ${origEmail?.subject || ""}`,
+				html: html || undefined,
+				text: text || undefined,
+				headers,
+			});
+			smtpStatus.messageId = res.messageId;
+			console.log(`Successfully sent reply email via SMTP to ${recipientStr}: ${res.messageId}`);
+		} catch (err) {
+			console.error("Failed to send reply email via SMTP:", (err as Error).message);
+			smtpStatus.warning = `SMTP sending failed: ${(err as Error).message}`;
+		}
+	} else {
+		smtpStatus.warning = "SMTP credentials (SMTP_USER/SMTP_PASS) not configured. Saved in D1 only.";
+	}
+
 	await db.insert(schema.emails).values({
 		id: messageId,
 		mailbox_id: mailboxId,
@@ -115,10 +177,10 @@ export async function handleReplyEmail(c: AppContext) {
 		in_reply_to: inReplyTo,
 		thread_id: threadId,
 		email_references: JSON.stringify(references),
-		message_id: messageId,
+		message_id: smtpStatus.messageId || messageId,
 	});
 
-	return c.json({ id: messageId, status: "saved_in_d1", note: "Saved in D1 SENT folder." }, 201);
+	return c.json({ id: messageId, status: smtpStatus.messageId ? "sent" : "saved_in_d1", ...smtpStatus }, 201);
 }
 
 export async function handleForwardEmail(c: AppContext) {
@@ -147,6 +209,34 @@ export async function handleForwardEmail(c: AppContext) {
 	const bccStr = parseRecipientString(bcc);
 	const messageId = crypto.randomUUID();
 
+	let smtpStatus: { messageId?: string; warning?: string } = {};
+
+	if (c.env.SMTP_USER && c.env.SMTP_PASS) {
+		try {
+			const res = await sendSmtpEmail({
+				host: c.env.SMTP_HOST,
+				port: c.env.SMTP_PORT,
+				user: c.env.SMTP_USER,
+				pass: c.env.SMTP_PASS,
+				from: mailboxId,
+				to: recipientStr,
+				cc: ccStr || undefined,
+				bcc: bccStr || undefined,
+				replyTo: mailboxId,
+				subject: subject || `Fwd: ${origEmail?.subject || ""}`,
+				html: html || undefined,
+				text: text || undefined,
+			});
+			smtpStatus.messageId = res.messageId;
+			console.log(`Successfully forwarded email via SMTP to ${recipientStr}: ${res.messageId}`);
+		} catch (err) {
+			console.error("Failed to forward email via SMTP:", (err as Error).message);
+			smtpStatus.warning = `SMTP forwarding failed: ${(err as Error).message}`;
+		}
+	} else {
+		smtpStatus.warning = "SMTP credentials (SMTP_USER/SMTP_PASS) not configured. Saved in D1 only.";
+	}
+
 	await db.insert(schema.emails).values({
 		id: messageId,
 		mailbox_id: mailboxId,
@@ -161,10 +251,10 @@ export async function handleForwardEmail(c: AppContext) {
 		read: 1,
 		starred: 0,
 		thread_id: messageId,
-		message_id: messageId,
+		message_id: smtpStatus.messageId || messageId,
 	});
 
-	return c.json({ id: messageId, status: "saved_in_d1", note: "Saved in D1 SENT folder." }, 201);
+	return c.json({ id: messageId, status: smtpStatus.messageId ? "sent" : "saved_in_d1", ...smtpStatus }, 201);
 }
 
 export async function handleSaveDraft(c: AppContext) {
