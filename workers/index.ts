@@ -565,6 +565,106 @@ app.get("/api/v1/external/messages", async (c) => {
 	});
 });
 
+// -- External POST API: Receive Message into Mailbox -----------------
+
+async function handleExternalPostMessage(
+	db: ReturnType<typeof drizzle<typeof schema>>,
+	mailboxId: string,
+	body: { name?: string; email?: string; message?: string },
+) {
+	const email = (body.email || "").trim().toLowerCase();
+	const name = (body.name || "").trim();
+	const message = body.message || "";
+
+	if (!email) {
+		return { error: "Email is required", statusCode: 400 };
+	}
+
+	const mailboxRows = await db
+		.select()
+		.from(schema.mailboxes)
+		.where(eq(schema.mailboxes.id, mailboxId.toLowerCase()))
+		.limit(1);
+
+	if (mailboxRows.length === 0) {
+		return { error: "Mailbox not found", statusCode: 404 };
+	}
+
+	const mailboxRecord = mailboxRows[0];
+	const mailboxName = mailboxRecord.name || mailboxId;
+	const subject = `a mail from ${email} in mailbox ${mailboxName}`;
+	const sender = name ? `${name} <${email}>` : email;
+	const messageId = crypto.randomUUID();
+
+	await db.insert(schema.emails).values({
+		id: messageId,
+		mailbox_id: mailboxId.toLowerCase(),
+		folder_id: Folders.INBOX,
+		subject,
+		sender,
+		recipient: mailboxId.toLowerCase(),
+		date: new Date().toISOString(),
+		body: message,
+		read: 0,
+		starred: 0,
+		raw_headers: JSON.stringify({ "Reply-To": email, "From-Name": name }),
+	});
+
+	return {
+		success: true,
+		id: messageId,
+		mailbox: mailboxId.toLowerCase(),
+		statusCode: 201,
+	};
+}
+
+app.post("/api/v1/external/messages", async (c) => {
+	const authHeader = c.req.header("authorization") || "";
+	const bearerKey = authHeader.toLowerCase().startsWith("bearer ")
+		? authHeader.substring(7).trim()
+		: undefined;
+	const apiKey = c.req.query("apiKey") || c.req.header("x-api-key") || bearerKey;
+
+	if (!apiKey) {
+		return c.json(
+			{
+				error:
+					"Missing API Key. Provide via ?apiKey= query parameter, X-API-Key header, or Authorization: Bearer <key>",
+			},
+			401,
+		);
+	}
+
+	const validated = await validateApiKey(c.env, apiKey);
+	if (!validated) {
+		return c.json({ error: "Invalid API Key" }, 401);
+	}
+
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+	const body = await c.req.json().catch(() => ({}));
+
+	const res = await handleExternalPostMessage(db, validated.mailboxId, body);
+	if ("error" in res) {
+		return c.json({ error: res.error }, res.statusCode as any);
+	}
+	return c.json(res, 201);
+});
+
+app.post("/api/v1/external/mailboxes/:mailboxId/messages", async (c) => {
+	const mailboxId = c.req.param("mailboxId");
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+	const body = await c.req.json().catch(() => ({}));
+
+	const res = await handleExternalPostMessage(db, mailboxId, body);
+	if ("error" in res) {
+		return c.json({ error: res.error }, res.statusCode as any);
+	}
+	return c.json(res, 201);
+});
+
+
 // -- Emails (D1) ----------------------------------------------------
 
 app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
