@@ -13,6 +13,8 @@ import { sendSmtpEmail } from "../lib/smtp";
 
 type AppContext = Context<MailboxContext>;
 
+const DEFAULT_FROM_NAME = "Durga Sai Gundubogula";
+
 function parseRecipientString(rec: unknown): string {
 	if (!rec) return "";
 	if (typeof rec === "string") return rec;
@@ -28,14 +30,45 @@ function parseRecipientString(rec: unknown): string {
 	return String(rec);
 }
 
+async function getFormattedFrom(
+	db: ReturnType<typeof drizzle<typeof schema>>,
+	mailboxId: string,
+	reqFrom: unknown,
+): Promise<string> {
+	if (typeof reqFrom === "object" && reqFrom !== null && "name" in reqFrom && (reqFrom as any).name) {
+		return `${(reqFrom as any).name} <${mailboxId}>`;
+	}
+
+	const mailboxRows = await db
+		.select()
+		.from(schema.mailboxes)
+		.where(eq(schema.mailboxes.id, mailboxId.toLowerCase()))
+		.limit(1);
+
+	if (mailboxRows.length > 0) {
+		const mRecord = mailboxRows[0];
+		let mSettings: Record<string, any> = {};
+		if (mRecord.settings) {
+			try {
+				mSettings = JSON.parse(mRecord.settings);
+			} catch {}
+		}
+		const name = mSettings.fromName || mRecord.name || DEFAULT_FROM_NAME;
+		return `${name} <${mailboxId}>`;
+	}
+
+	return `${DEFAULT_FROM_NAME} <${mailboxId}>`;
+}
+
 export async function handleSendEmail(c: AppContext) {
 	const mailboxId = (c.req.param("mailboxId") ?? "").toLowerCase();
 	const body = await c.req.json().catch(() => ({}));
-	const { to, cc, bcc, subject, html, text } = body;
+	const { to, cc, bcc, subject, html, text, from } = body;
 
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
 
+	const fromFormatted = await getFormattedFrom(db, mailboxId, from);
 	const recipientStr = parseRecipientString(to);
 	const ccStr = parseRecipientString(cc);
 	const bccStr = parseRecipientString(bcc);
@@ -50,7 +83,7 @@ export async function handleSendEmail(c: AppContext) {
 				port: c.env.SMTP_PORT,
 				user: c.env.SMTP_USER,
 				pass: c.env.SMTP_PASS,
-				from: mailboxId,
+				from: fromFormatted,
 				to: recipientStr,
 				cc: ccStr || undefined,
 				bcc: bccStr || undefined,
@@ -74,7 +107,7 @@ export async function handleSendEmail(c: AppContext) {
 		mailbox_id: mailboxId,
 		folder_id: Folders.SENT,
 		subject: subject || "(no subject)",
-		sender: mailboxId,
+		sender: fromFormatted,
 		recipient: recipientStr,
 		cc: ccStr || null,
 		bcc: bccStr || null,
@@ -93,10 +126,12 @@ export async function handleReplyEmail(c: AppContext) {
 	const mailboxId = (c.req.param("mailboxId") ?? "").toLowerCase();
 	const originalEmailId = c.req.param("id") ?? "";
 	const body = await c.req.json().catch(() => ({}));
-	const { to, cc, bcc, subject, html, text } = body;
+	const { to, cc, bcc, subject, html, text, from } = body;
 
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
+
+	const fromFormatted = await getFormattedFrom(db, mailboxId, from);
 
 	const origRows = await db
 		.select()
@@ -141,7 +176,7 @@ export async function handleReplyEmail(c: AppContext) {
 				port: c.env.SMTP_PORT,
 				user: c.env.SMTP_USER,
 				pass: c.env.SMTP_PASS,
-				from: mailboxId,
+				from: fromFormatted,
 				to: recipientStr,
 				cc: ccStr || undefined,
 				bcc: bccStr || undefined,
@@ -166,7 +201,7 @@ export async function handleReplyEmail(c: AppContext) {
 		mailbox_id: mailboxId,
 		folder_id: Folders.SENT,
 		subject: subject || `Re: ${origEmail?.subject || ""}`,
-		sender: mailboxId,
+		sender: fromFormatted,
 		recipient: recipientStr,
 		cc: ccStr || null,
 		bcc: bccStr || null,
@@ -187,10 +222,13 @@ export async function handleForwardEmail(c: AppContext) {
 	const mailboxId = (c.req.param("mailboxId") ?? "").toLowerCase();
 	const originalEmailId = c.req.param("id") ?? "";
 	const body = await c.req.json().catch(() => ({}));
-	const { to, cc, bcc, subject, html, text } = body;
+	const { to, cc, bcc, subject, html, text, from } = body;
 
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
+
+	const fromFormatted = typeof from === "string" ? from : (typeof from === "object" && from !== null && "email" in from ? (from as any).email : mailboxId);
+
 
 	const origRows = await db
 		.select()
@@ -218,7 +256,7 @@ export async function handleForwardEmail(c: AppContext) {
 				port: c.env.SMTP_PORT,
 				user: c.env.SMTP_USER,
 				pass: c.env.SMTP_PASS,
-				from: mailboxId,
+				from: fromFormatted,
 				to: recipientStr,
 				cc: ccStr || undefined,
 				bcc: bccStr || undefined,
@@ -242,7 +280,7 @@ export async function handleForwardEmail(c: AppContext) {
 		mailbox_id: mailboxId,
 		folder_id: Folders.SENT,
 		subject: subject || `Fwd: ${origEmail?.subject || ""}`,
-		sender: mailboxId,
+		sender: fromFormatted,
 		recipient: recipientStr,
 		cc: ccStr || null,
 		bcc: bccStr || null,

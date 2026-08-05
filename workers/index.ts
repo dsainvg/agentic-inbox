@@ -309,8 +309,9 @@ app.post("/api/v1/mailboxes", async (c) => {
 		return c.json({ error: "Mailbox already exists" }, 409);
 	}
 
+	const finalName = name || "Durga Sai Gundubogula";
 	const defaultSettings = {
-		fromName: name,
+		fromName: finalName,
 		agentSystemPrompt: "",
 	};
 	const finalSettings = { ...defaultSettings, ...settings };
@@ -319,11 +320,12 @@ app.post("/api/v1/mailboxes", async (c) => {
 	await db.insert(schema.mailboxes).values({
 		id: email,
 		email,
-		name,
+		name: finalName,
 		forward_to: forwardTo || null,
 		settings: JSON.stringify(finalSettings),
 		created_at: now,
 	});
+
 
 	// Create default system folders
 	const defaultFolders = [
