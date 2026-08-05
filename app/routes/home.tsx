@@ -3,7 +3,6 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import {
-	Badge,
 	Button,
 	Dialog,
 	Input,
@@ -217,23 +216,17 @@ export default function HomeRoute() {
 				{/* All Mailboxes Combined Inbox Entry */}
 				<RouterLink
 					to="/mailbox/all/emails/inbox"
-					className="group flex items-center gap-4 px-5 py-4 mb-6 rounded-xl border border-kumo-line bg-kumo-base no-underline transition-all hover:border-kumo-ring hover:bg-kumo-tint shadow-sm"
+					className="group flex items-center justify-between px-5 py-3.5 mb-6 rounded-xl border border-kumo-line bg-kumo-base no-underline transition-all hover:border-kumo-ring hover:bg-kumo-tint shadow-sm"
 				>
-					<div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-kumo-brand/10 text-kumo-brand font-bold">
-						<EnvelopeSimpleIcon size={22} weight="bold" />
-					</div>
 					<div className="min-w-0 flex-1">
-						<div className="flex items-center gap-2">
-							<span className="text-base font-semibold text-kumo-default">
-								All Mailboxes (Combined Inbox)
-							</span>
-							<Badge variant="primary">Unified View</Badge>
+						<div className="text-sm font-semibold text-kumo-default">
+							All Mailboxes (Combined Inbox)
 						</div>
 						<div className="text-xs text-kumo-subtle mt-0.5">
-							View and manage emails from all mailboxes in a single stream
+							View emails from all mailboxes in a single stream
 						</div>
 					</div>
-					<div className="text-xs font-medium text-kumo-primary group-hover:translate-x-0.5 transition-transform">
+					<div className="text-xs font-medium text-kumo-primary group-hover:translate-x-0.5 transition-transform shrink-0 ml-4">
 						View All Mails →
 					</div>
 				</RouterLink>
@@ -262,15 +255,11 @@ export default function HomeRoute() {
 									<div className="text-sm text-kumo-subtle">
 										{account.email}
 									</div>
-									<div className="text-[11px] text-kumo-subtle mt-0.5 flex items-center gap-1.5">
-										{account.forwardTo ? (
-											<span className="text-green-600 dark:text-green-400 font-medium">
-												Forwarding to: {account.forwardTo}
-											</span>
-										) : (
-											<span className="italic">No forwarding set</span>
-										)}
-									</div>
+									{account.forwardTo && (
+										<div className="text-[11px] text-kumo-subtle mt-0.5">
+											Forwarding to: {account.forwardTo}
+										</div>
+									)}
 								</div>
 								<div className="flex items-center gap-1 shrink-0">
 									<Button
