@@ -6,6 +6,7 @@ import { Badge, Button, Dialog, Input, Tooltip } from "@cloudflare/kumo";
 import {
 	ArchiveIcon,
 	CaretLeftIcon,
+	EnvelopeSimpleIcon,
 	FileIcon,
 	FolderIcon,
 	PaperPlaneTiltIcon,
@@ -23,6 +24,7 @@ import { useUIStore } from "~/hooks/useUIStore";
 import api from "~/services/api";
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
+	[Folders.ALL_MAIL]: <EnvelopeSimpleIcon size={18} weight="regular" />,
 	[Folders.INBOX]: <TrayIcon size={18} weight="regular" />,
 	[Folders.SENT]: <PaperPlaneTiltIcon size={18} weight="regular" />,
 	[Folders.DRAFT]: <FileIcon size={18} weight="regular" />,
@@ -31,12 +33,14 @@ const FOLDER_ICONS: Record<string, React.ReactNode> = {
 };
 
 const SYSTEM_FOLDER_LINKS = [
+	{ id: Folders.ALL_MAIL, label: "All Mail" },
 	{ id: Folders.INBOX, label: "Inbox" },
 	{ id: Folders.SENT, label: "Sent" },
 	{ id: Folders.DRAFT, label: "Drafts" },
 	{ id: Folders.ARCHIVE, label: "Archive" },
 	{ id: Folders.TRASH, label: "Trash" },
 ];
+
 
 interface FolderLinkProps {
 	to: string;

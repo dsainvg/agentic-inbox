@@ -22,7 +22,7 @@ Return ONLY "NO" if it is a normal email (even if angry, confused, or containing
 Respond with exactly one word: YES or NO.`;
 
 export async function isPromptInjection(ai: Ai, bodyHtml: string | null | undefined): Promise<boolean> {
-	if (!bodyHtml) return false;
+	if (!bodyHtml || !ai) return false;
 	
 	const plainText = stripHtmlToText(bodyHtml).trim();
 	if (plainText.length < 10) return false;
@@ -30,7 +30,7 @@ export async function isPromptInjection(ai: Ai, bodyHtml: string | null | undefi
 	try {
 		const response = (await ai.run(
 			// @ts-expect-error — model string not in generated union
-			"@cf/meta/llama-3.1-8b-instruct-fast",
+			"@cf/meta/llama-3.1-8b-instruct",
 			{
 				messages: [
 					{ role: "system", content: INJECTION_PROMPT },
@@ -50,11 +50,8 @@ export async function isPromptInjection(ai: Ai, bodyHtml: string | null | undefi
 		
 		return false;
 	} catch (e) {
-		console.error("Prompt injection scanner failed, skipping auto-draft:", (e as Error).message);
-		// Fail closed: treat scanner failures as potential injection to avoid
-		// auto-drafting replies to emails we couldn't verify.
-		// The email is still stored in the inbox — only auto-draft is skipped.
-		return true;
+		console.error("Prompt injection scanner failed:", (e as Error).message);
+		return false;
 	}
 }
 
@@ -97,30 +94,10 @@ Examples of legitimate email content to KEEP (never remove these):
 RULES:
 1. If the email has NO system artifacts, return it EXACTLY as-is, character for character. Do not rephrase, reformat, or "improve" anything.
 2. If you find artifacts, remove ONLY those specific lines. Keep everything else identical.
-3. When in doubt, KEEP the content. False positives (removing real content) are far worse than false negatives (leaving an artifact).
-4. Return ONLY the email text. No explanations, no "Here is the cleaned version:", no wrapper text.`;
+3. When in doubt, KEEP the content. False positives (removing real content) are far worse than false negatives (leaving an artifact).`;
 
-/**
- * Split an HTML body into the reply portion and the quoted block.
- */
-function splitQuotedBlock(html: string): { reply: string; quoted: string } {
-	const match = html.match(
-		/(\s*(?:<br\s*\/?>)\s*)?(<blockquote[\s\S]*<\/blockquote>)\s*$/i,
-	);
-	if (match) {
-		const quoted = match[0];
-		const reply = html.slice(0, html.length - quoted.length);
-		return { reply, quoted };
-	}
-	return { reply: html, quoted: "" };
-}
-
-/**
- * Verify and clean a draft email body using AI.
- * Falls back to returning the original body if the AI call fails.
- */
 export async function verifyDraft(ai: Ai, body: string): Promise<string> {
-	if (!body || !body.trim()) return body;
+	if (!body || !ai) return body;
 
 	// Separate the quoted reply block so the AI only reviews the user's text
 	const isHtml = /<[a-z][\s\S]*>/i.test(body);
@@ -136,7 +113,8 @@ export async function verifyDraft(ai: Ai, body: string): Promise<string> {
 
 	try {
 		const response = (await ai.run(
-			"@cf/meta/llama-4-scout-17b-16e-instruct",
+			// @ts-expect-error — model string not in generated union
+			"@cf/meta/llama-3.1-8b-instruct",
 			{
 				messages: [
 					{ role: "system", content: VERIFIER_PROMPT },
@@ -150,44 +128,36 @@ export async function verifyDraft(ai: Ai, body: string): Promise<string> {
 		const cleaned = response?.response ?? null;
 
 		if (!cleaned || !cleaned.trim()) {
-			// AI returned empty — fall back to original
 			return body;
 		}
 
 		const cleanedTrimmed = cleaned.trim();
 
-		// If the AI returned something substantially similar, keep original formatting
 		if (normalizeWhitespace(cleanedTrimmed) === normalizeWhitespace(replyText)) {
 			return body;
 		}
 
-		// Safety check: if the AI removed more than 50% of the content,
-		// it's probably being too aggressive — fall back to original.
-		// This threshold balances between catching real artifacts and
-		// preventing the verifier from gutting legitimate emails.
-		if (cleanedTrimmed.length < replyText.trim().length * 0.5) {
-			console.warn(
-				"Draft verifier removed >50% of content, falling back to original.",
-				`Original: ${replyText.trim().length} chars, Cleaned: ${cleanedTrimmed.length} chars`,
-			);
-			return body;
-		}
-
-		// The AI cleaned something — rebuild in the original format
-		if (isHtml) {
-			return `${textToHtml(cleanedTrimmed)}${quotedBlock}`;
-		}
-
-		// Plain text: reattach quoted block if any
-		return quotedBlock
-			? `${cleanedTrimmed}\n\n${quotedBlock}`
-			: cleanedTrimmed;
+		const sanitizedReply = isHtml ? textToHtml(cleanedTrimmed) : cleanedTrimmed;
+		return quotedBlock ? `${sanitizedReply}\n${quotedBlock}` : sanitizedReply;
 	} catch (e) {
-				console.error("AI failed — returns empty body, callers may save blank draft:", (e as Error).message);
-		return "";
+		console.error("Draft verifier failed:", (e as Error).message);
+		return body;
 	}
 }
 
-function normalizeWhitespace(s: string): string {
-	return s.replace(/\s+/g, " ").trim();
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function splitQuotedBlock(html: string): { reply: string; quoted: string } {
+	const match = html.match(/<blockquote[\s\S]*$/i);
+	if (!match || match.index === undefined) {
+		return { reply: html, quoted: "" };
+	}
+	return {
+		reply: html.slice(0, match.index),
+		quoted: html.slice(match.index),
+	};
+}
+
+function normalizeWhitespace(str: string): string {
+	return str.replace(/\s+/g, " ").trim();
 }

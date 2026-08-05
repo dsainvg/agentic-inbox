@@ -4,6 +4,8 @@
 
 export interface Env extends Cloudflare.Env {
 	DB: D1Database;
+	AI: Ai;
+	EmailAgent: DurableObjectNamespace;
 	POLICY_AUD?: string;
 	TEAM_DOMAIN?: string;
 	DOMAINS?: string;
@@ -14,5 +16,3 @@ export interface Env extends Cloudflare.Env {
 	SMTP_USER?: string;
 	SMTP_PASS?: string;
 }
-
-

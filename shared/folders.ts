@@ -11,6 +11,7 @@
  */
 
 export const Folders = {
+	ALL_MAIL: "all_mail",
 	INBOX: "inbox",
 	SENT: "sent",
 	DRAFT: "draft",
@@ -26,6 +27,7 @@ export type FolderId = (typeof Folders)[keyof typeof Folders];
  * Order here matches the sidebar display order.
  */
 export const SYSTEM_FOLDER_IDS: readonly FolderId[] = [
+	Folders.ALL_MAIL,
 	Folders.INBOX,
 	Folders.SENT,
 	Folders.DRAFT,
@@ -38,6 +40,7 @@ export const SYSTEM_FOLDER_IDS: readonly FolderId[] = [
  * Used in the sidebar, search result badges, and tool descriptions.
  */
 export const FOLDER_DISPLAY_NAMES: Record<string, string> = {
+	[Folders.ALL_MAIL]: "All Mail",
 	[Folders.INBOX]: "Inbox",
 	[Folders.SENT]: "Sent",
 	[Folders.DRAFT]: "Drafts",
@@ -45,6 +48,7 @@ export const FOLDER_DISPLAY_NAMES: Record<string, string> = {
 	[Folders.TRASH]: "Trash",
 	[Folders.SPAM]: "Spam",
 };
+
 
 /** Formatted string for tool parameter descriptions (agent + MCP). */
 export const FOLDER_TOOL_DESCRIPTION =

@@ -86,7 +86,8 @@ const KumoLink = forwardRef<
 
 export function Layout({ children }: { children: React.ReactNode }) {
 	return (
-		<html lang="en">
+		<html lang="en" className="dark" data-theme="dark">
+
 			<head>
 				<meta charSet="UTF-8" />
 				<link rel="icon" type="image/svg+xml" href="/favicon.svg" />

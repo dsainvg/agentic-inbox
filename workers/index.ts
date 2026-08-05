@@ -525,15 +525,18 @@ app.get("/api/v1/external/messages", async (c) => {
 
 	const offset = (page - 1) * limit;
 
+	const filterCondition =
+		folder === Folders.ALL_MAIL || folder === "all_mail" || folder === "all"
+			? eq(schema.emails.mailbox_id, mailboxId.toLowerCase())
+			: and(
+					eq(schema.emails.mailbox_id, mailboxId.toLowerCase()),
+					eq(schema.emails.folder_id, folder),
+				);
+
 	const emailRows = await db
 		.select()
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.mailbox_id, mailboxId.toLowerCase()),
-				eq(schema.emails.folder_id, folder),
-			),
-		)
+		.where(filterCondition)
 		.orderBy(desc(schema.emails.date))
 		.limit(limit)
 		.offset(offset);
@@ -541,14 +544,10 @@ app.get("/api/v1/external/messages", async (c) => {
 	const totalCountResult = await db
 		.select({ count: count() })
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.mailbox_id, mailboxId.toLowerCase()),
-				eq(schema.emails.folder_id, folder),
-			),
-		);
+		.where(filterCondition);
 
 	const totalCount = totalCountResult[0]?.count || 0;
+
 
 	return c.json({
 		mailbox: mailboxId,
@@ -680,15 +679,18 @@ app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	const limit = Math.min(intQuery(c, "limit") || 25, 100);
 	const offset = (page - 1) * limit;
 
+	const filterCondition =
+		folder === Folders.ALL_MAIL || folder === "all_mail" || folder === "all"
+			? eq(schema.emails.mailbox_id, mailboxId)
+			: and(
+					eq(schema.emails.mailbox_id, mailboxId),
+					eq(schema.emails.folder_id, folder),
+				);
+
 	const emailRows = await db
 		.select()
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.mailbox_id, mailboxId),
-				eq(schema.emails.folder_id, folder),
-			),
-		)
+		.where(filterCondition)
 		.orderBy(desc(schema.emails.date))
 		.limit(limit)
 		.offset(offset);
@@ -696,14 +698,10 @@ app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	const totalCountResult = await db
 		.select({ count: count() })
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.mailbox_id, mailboxId),
-				eq(schema.emails.folder_id, folder),
-			),
-		);
+		.where(filterCondition);
 
 	const totalCount = totalCountResult[0]?.count || 0;
+
 
 	return c.json({
 		emails: emailRows.map((e) => ({
@@ -1077,9 +1075,35 @@ async function receiveEmail(
 		});
 
 		console.log(`Stored email ${messageId} in D1 for mailbox ${targetMailboxId}`);
+
+		// Trigger EmailAgent DO for auto-drafting if DO binding is available
+		if (env.EmailAgent) {
+			try {
+				const id = env.EmailAgent.idFromName(targetMailboxId);
+				const stub = env.EmailAgent.get(id);
+				ctx.waitUntil(
+					stub.fetch(
+						new Request("https://agent/onNewEmail", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								mailboxId: targetMailboxId,
+								emailId: messageId,
+								sender: (parsedEmail.from?.address || event.from || "").toLowerCase(),
+								subject: parsedEmail.subject || "(no subject)",
+								threadId,
+							}),
+						}),
+					).catch((e) => console.error("Failed to notify EmailAgent DO:", (e as Error).message)),
+				);
+			} catch (e) {
+				console.error("Failed to fetch EmailAgent DO:", (e as Error).message);
+			}
+		}
 	} catch (e) {
 		console.error("Unhandled exception in receiveEmail:", (e as Error).message, (e as Error).stack);
 	}
+
 }
 
 export { app, receiveEmail };

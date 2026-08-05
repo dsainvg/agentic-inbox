@@ -45,6 +45,15 @@ const FOLDER_EMPTY_STATES: Record<
 		showCompose?: boolean;
 	}
 > = {
+	[Folders.ALL_MAIL]: {
+		icon: (
+			<EnvelopeSimpleIcon size={48} weight="thin" className="text-kumo-subtle" />
+		),
+		title: "No emails in mailbox",
+		description:
+			"Received, sent, and drafted emails for this mailbox will appear here.",
+		showCompose: true,
+	},
 	[Folders.INBOX]: {
 		icon: <TrayIcon size={48} weight="thin" className="text-kumo-subtle" />,
 		title: "Your inbox is empty",
@@ -52,6 +61,7 @@ const FOLDER_EMPTY_STATES: Record<
 			"New emails will appear here when they arrive. Send an email to get the conversation started.",
 		showCompose: true,
 	},
+
 	[Folders.SENT]: {
 		icon: (
 			<PaperPlaneTiltIcon size={48} weight="thin" className="text-kumo-subtle" />
@@ -179,10 +189,12 @@ export default function EmailListRoute() {
 	const { data: folders = [] } = useFolders(mailboxId);
 
 	const folderName = useMemo(() => {
+		if (folder === Folders.ALL_MAIL) return "All Mail";
 		const found = folders.find((f) => f.id === folder);
 		if (found) return found.name;
 		return folder ? folder.charAt(0).toUpperCase() + folder.slice(1) : "Inbox";
 	}, [folders, folder]);
+
 
 	const isPanelOpen = selectedEmailId !== null || isComposing;
 

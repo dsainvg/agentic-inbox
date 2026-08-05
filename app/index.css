@@ -2,9 +2,14 @@
 @import "@cloudflare/kumo/styles/tailwind";
 @import "tailwindcss";
 
+:root, html {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
 }
+
 
 /* TipTap list styles */
 .ProseMirror ul {

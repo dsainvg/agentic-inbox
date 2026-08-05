@@ -12,6 +12,23 @@
 	"vars": {
 		"DOMAINS": "dsainvg.dpdns.org, dsainvg.me, durgasai.dpdns.org, nervi.dpdns.org, rupya.dpdns.org, timio.dpdns.org"
 	},
+	"ai": {
+		"binding": "AI"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "EmailAgent",
+				"class_name": "EmailAgent"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_classes": ["EmailAgent"]
+		}
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",

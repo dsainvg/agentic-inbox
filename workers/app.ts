@@ -70,6 +70,9 @@ app.all("*", (c) => {
 	});
 });
 
+// Export EmailAgent Durable Object class
+export { EmailAgent } from "./agent/index";
+
 // Export the Hono app as default export with email trigger handler
 export default {
 	fetch: app.fetch,
@@ -85,4 +88,5 @@ export default {
 		}
 	},
 };
+
 
