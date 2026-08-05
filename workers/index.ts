@@ -60,7 +60,7 @@ function isDomainAllowed(email: string, envDomainsRaw?: string): boolean {
 	if (!envDomainsRaw) return true;
 	const allowed = envDomainsRaw
 		.split(",")
-		.map((d) => d.trim().toLowerCase())
+		.map((d) => d.trim().toLowerCase().replace(/^[*.]+/g, ""))
 		.filter(Boolean);
 	if (allowed.length === 0) return true;
 
@@ -72,6 +72,7 @@ function isDomainAllowed(email: string, envDomainsRaw?: string): boolean {
 		(domain) => emailDomain === domain || emailDomain.endsWith(`.${domain}`),
 	);
 }
+
 
 const app = new Hono<MailboxContext>();
 

@@ -46,6 +46,8 @@ export default function HomeRoute() {
 	const [isCreateOpen, setIsCreateOpen] = useState(false);
 	const [newPrefix, setNewPrefix] = useState("");
 	const [selectedDomain, setSelectedDomain] = useState("");
+	const [customDomain, setCustomDomain] = useState("");
+	const [useCustomSubdomain, setUseCustomSubdomain] = useState(false);
 	const [newName, setNewName] = useState("");
 	const [isCreating, setIsCreating] = useState(false);
 	const [createError, setCreateError] = useState<string | null>(null);
@@ -92,12 +94,21 @@ export default function HomeRoute() {
 	const handleCreate = async (e: FormEvent) => {
 		e.preventDefault();
 		setCreateError(null);
-		if (!newPrefix || !selectedDomain) {
-			setCreateError("Please fill in all fields");
-			return;
+		const rawPrefix = newPrefix.trim();
+		let email = "";
+
+		if (rawPrefix.includes("@")) {
+			email = rawPrefix.toLowerCase();
+		} else {
+			const activeDomain = (useCustomSubdomain ? customDomain : selectedDomain).trim().toLowerCase();
+			if (!rawPrefix || !activeDomain) {
+				setCreateError("Please fill in both prefix and domain/subdomain");
+				return;
+			}
+			email = `${rawPrefix}@${activeDomain}`;
 		}
-		const email = `${newPrefix}@${selectedDomain}`;
-		const name = newName || newPrefix;
+
+		const name = newName.trim() || email.split("@")[0];
 		setIsCreating(true);
 		try {
 			await createMailbox.mutateAsync({ email, name });
@@ -105,6 +116,8 @@ export default function HomeRoute() {
 			setIsCreateOpen(false);
 			setNewPrefix("");
 			setNewName("");
+			setCustomDomain("");
+			setUseCustomSubdomain(false);
 		} catch (err: unknown) {
 			const message = (err instanceof Error ? err.message : null) || "Failed to create mailbox";
 			setCreateError(message);
@@ -112,6 +125,7 @@ export default function HomeRoute() {
 			setIsCreating(false);
 		}
 	};
+
 
 	const handleDelete = async () => {
 		if (!mailboxToDelete) return;
@@ -254,42 +268,70 @@ export default function HomeRoute() {
 						)}
 						<div>
 							<span className="text-sm font-medium text-kumo-default mb-1.5 block">
-								Email Address
+								Email Address / Subdomain
 							</span>
 							<div className="flex items-center gap-2">
 								<div className="flex-1">
 									<Input
-										aria-label="Address prefix"
-										placeholder="info"
+										aria-label="Address prefix or full email"
+										placeholder="info or info@sub.domain.com"
 										size="sm"
 										value={newPrefix}
 										onChange={(e) => setNewPrefix(e.target.value)}
 										required
 									/>
 								</div>
-								<span className="text-sm text-kumo-subtle">@</span>
-								{domains.length > 1 ? (
-									<div className="flex-1">
-							<Select
-								aria-label="Domain"
-								value={selectedDomain}
-								onValueChange={(value) => {
-									if (value) setSelectedDomain(value);
-								}}
-							>
-											{domains.map((d) => (
-												<Select.Option key={d} value={d}>
-													{d}
-												</Select.Option>
-											))}
-										</Select>
-									</div>
-								) : (
-									<span className="text-sm text-kumo-subtle">
-										{selectedDomain || "no domain"}
-									</span>
+								{!newPrefix.includes("@") && (
+									<>
+										<span className="text-sm text-kumo-subtle">@</span>
+										<div className="flex-1">
+											{useCustomSubdomain ? (
+												<Input
+													aria-label="Custom Subdomain"
+													placeholder="sub.domain.com"
+													size="sm"
+													value={customDomain}
+													onChange={(e) => setCustomDomain(e.target.value)}
+													required
+												/>
+											) : (
+												<Select
+													aria-label="Domain"
+													value={selectedDomain}
+													onValueChange={(value) => {
+														if (value === "__custom__") {
+															setUseCustomSubdomain(true);
+														} else if (value) {
+															setSelectedDomain(value);
+														}
+													}}
+												>
+													{domains.map((d) => (
+														<Select.Option key={d} value={d}>
+															{d}
+														</Select.Option>
+													))}
+													<Select.Option value="__custom__">
+														+ Enter Subdomain...
+													</Select.Option>
+												</Select>
+											)}
+										</div>
+									</>
 								)}
 							</div>
+							<p className="text-[11px] text-kumo-subtle mt-1.5">
+								Supports base domains and any subdomains (e.g. <code className="font-mono text-kumo-default">user@sub.example.com</code>).
+							</p>
+							{useCustomSubdomain && (
+								<button
+									type="button"
+									onClick={() => setUseCustomSubdomain(false)}
+									className="text-[11px] text-kumo-primary hover:underline mt-1 cursor-pointer"
+								>
+									← Select base domain instead
+								</button>
+							)}
 						</div>
 						<Input
 							label="Display Name (optional)"
@@ -298,6 +340,7 @@ export default function HomeRoute() {
 							value={newName}
 							onChange={(e) => setNewName(e.target.value)}
 						/>
+
 						<div className="flex justify-end gap-2 pt-2">
 							<Dialog.Close
 								render={(props) => (
