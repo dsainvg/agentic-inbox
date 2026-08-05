@@ -361,6 +361,16 @@ app.get("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const db = drizzle(c.env.DB, { schema });
 	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
 
+	if (mailboxId === "all") {
+		return c.json({
+			id: "all",
+			email: "All Mailboxes",
+			name: "All Mailboxes",
+			forwardTo: null,
+			settings: {},
+		});
+	}
+
 	const rows = await db
 		.select()
 		.from(schema.mailboxes)
@@ -679,13 +689,20 @@ app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	const limit = Math.min(intQuery(c, "limit") || 25, 100);
 	const offset = (page - 1) * limit;
 
+	const isAllMailFolder =
+		folder === Folders.ALL_MAIL || folder === "all_mail" || folder === "all";
+
 	const filterCondition =
-		folder === Folders.ALL_MAIL || folder === "all_mail" || folder === "all"
-			? eq(schema.emails.mailbox_id, mailboxId)
-			: and(
-					eq(schema.emails.mailbox_id, mailboxId),
-					eq(schema.emails.folder_id, folder),
-				);
+		mailboxId === "all"
+			? isAllMailFolder
+				? undefined
+				: eq(schema.emails.folder_id, folder)
+			: isAllMailFolder
+				? eq(schema.emails.mailbox_id, mailboxId)
+				: and(
+						eq(schema.emails.mailbox_id, mailboxId),
+						eq(schema.emails.folder_id, folder),
+					);
 
 	const emailRows = await db
 		.select()
@@ -701,7 +718,6 @@ app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 		.where(filterCondition);
 
 	const totalCount = totalCountResult[0]?.count || 0;
-
 
 	return c.json({
 		emails: emailRows.map((e) => ({
@@ -726,15 +742,18 @@ app.get("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
 	const emailId = c.req.param("id")!;
 
+	const matchCondition =
+		mailboxId === "all"
+			? eq(schema.emails.id, emailId)
+			: and(
+					eq(schema.emails.id, emailId),
+					eq(schema.emails.mailbox_id, mailboxId),
+				);
+
 	const rows = await db
 		.select()
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.id, emailId),
-				eq(schema.emails.mailbox_id, mailboxId),
-			),
-		)
+		.where(matchCondition)
 		.limit(1);
 
 	if (rows.length === 0) return c.json({ error: "Email not found" }, 404);
@@ -759,19 +778,21 @@ app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 		starred?: boolean;
 	};
 
+	const matchCondition =
+		mailboxId === "all"
+			? eq(schema.emails.id, emailId)
+			: and(
+					eq(schema.emails.id, emailId),
+					eq(schema.emails.mailbox_id, mailboxId),
+				);
+
 	const existingRows = await db
 		.select()
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.id, emailId),
-				eq(schema.emails.mailbox_id, mailboxId),
-			),
-		)
+		.where(matchCondition)
 		.limit(1);
 
 	if (existingRows.length === 0) return c.json({ error: "Email not found" }, 404);
-	const existing = existingRows[0];
 
 	const updateData: Record<string, unknown> = {};
 	if (read !== undefined) updateData.read = read ? 1 : 0;
@@ -780,23 +801,12 @@ app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 	await db
 		.update(schema.emails)
 		.set(updateData)
-		.where(
-			and(
-				eq(schema.emails.id, emailId),
-				eq(schema.emails.mailbox_id, mailboxId),
-			),
-		);
+		.where(matchCondition);
 
 	const rows = await db
-
 		.select()
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.id, emailId),
-				eq(schema.emails.mailbox_id, mailboxId),
-			),
-		)
+		.where(matchCondition)
 		.limit(1);
 
 	const email = rows[0];
@@ -807,21 +817,23 @@ app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 	});
 });
 
-
 app.delete("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
 	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
 	const emailId = c.req.param("id")!;
 
+	const matchCondition =
+		mailboxId === "all"
+			? eq(schema.emails.id, emailId)
+			: and(
+					eq(schema.emails.id, emailId),
+					eq(schema.emails.mailbox_id, mailboxId),
+				);
+
 	await db
 		.delete(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.id, emailId),
-				eq(schema.emails.mailbox_id, mailboxId),
-			),
-		);
+		.where(matchCondition);
 
 	return c.body(null, 204);
 });
@@ -833,15 +845,18 @@ app.post("/api/v1/mailboxes/:mailboxId/emails/:id/move", async (c: AppContext) =
 	const emailId = c.req.param("id")!;
 	const { folderId } = (await c.req.json()) as { folderId: string };
 
+	const matchCondition =
+		mailboxId === "all"
+			? eq(schema.emails.id, emailId)
+			: and(
+					eq(schema.emails.id, emailId),
+					eq(schema.emails.mailbox_id, mailboxId),
+				);
+
 	await db
 		.update(schema.emails)
 		.set({ folder_id: folderId })
-		.where(
-			and(
-				eq(schema.emails.id, emailId),
-				eq(schema.emails.mailbox_id, mailboxId),
-			),
-		);
+		.where(matchCondition);
 
 	return c.json({ status: "moved" });
 });
@@ -852,6 +867,16 @@ app.get("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
 	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+
+	if (mailboxId === "all") {
+		return c.json([
+			{ id: Folders.INBOX, name: Folders.INBOX, unreadCount: 0 },
+			{ id: Folders.SENT, name: Folders.SENT, unreadCount: 0 },
+			{ id: Folders.DRAFT, name: Folders.DRAFT, unreadCount: 0 },
+			{ id: Folders.ARCHIVE, name: Folders.ARCHIVE, unreadCount: 0 },
+			{ id: Folders.TRASH, name: Folders.TRASH, unreadCount: 0 },
+		]);
+	}
 
 	const rows = await db
 		.select()

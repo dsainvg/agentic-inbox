@@ -109,6 +109,7 @@ export default function Sidebar() {
 	};
 
 	const displayName = useMemo(() => {
+		if (mailboxId === "all") return "All Mailboxes";
 		if (!currentMailbox) return mailboxId?.split("@")[0] || "Mailbox";
 		// Prefer settings.fromName > name > local part of email
 		if (currentMailbox.settings?.fromName) {
@@ -129,23 +130,34 @@ export default function Sidebar() {
 		<aside className="h-full w-64 bg-kumo-recessed flex flex-col shrink-0 border-r border-kumo-line">
 			{/* Back + identity */}
 			<div className="px-4 pt-4 pb-1">
-				<button
-					type="button"
-					onClick={() => {
-						navigate("/");
-						closeSidebar();
-					}}
-					className="flex items-center gap-1.5 text-kumo-subtle text-sm hover:text-kumo-default transition-colors mb-2.5 cursor-pointer bg-transparent border-0 p-0"
-				>
-					<CaretLeftIcon size={14} />
-					<span>Mailboxes</span>
-				</button>
+				<div className="flex items-center justify-between mb-2.5">
+					<button
+						type="button"
+						onClick={() => {
+							navigate("/");
+							closeSidebar();
+						}}
+						className="flex items-center gap-1.5 text-kumo-subtle text-sm hover:text-kumo-default transition-colors cursor-pointer bg-transparent border-0 p-0"
+					>
+						<CaretLeftIcon size={14} />
+						<span>Mailboxes</span>
+					</button>
+					{mailboxId !== "all" && (
+						<NavLink
+							to="/mailbox/all/emails/inbox"
+							onClick={handleNavClick}
+							className="text-xs text-kumo-link hover:underline font-medium"
+						>
+							All Mails
+						</NavLink>
+					)}
+				</div>
 				<div className="px-1">
 					<div className="text-base font-semibold text-kumo-default truncate">
 						{displayName}
 					</div>
 					<div className="text-sm text-kumo-subtle truncate mt-0.5">
-						{currentMailbox?.email || mailboxId}
+						{mailboxId === "all" ? "Combined Inbox" : currentMailbox?.email || mailboxId}
 					</div>
 				</div>
 			</div>

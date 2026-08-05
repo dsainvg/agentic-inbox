@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Button, Pagination, Tooltip } from "@cloudflare/kumo";
+import { Badge, Button, Pagination, Tooltip } from "@cloudflare/kumo";
 import {
 	ArchiveIcon,
 	ArrowBendUpLeftIcon,
@@ -288,7 +288,7 @@ export default function EmailListRoute() {
 				{/* Folder header */}
 				<div className="flex items-center justify-between px-4 py-3.5 border-b border-kumo-line shrink-0 md:px-5">
 					<h1 className="text-lg font-semibold text-kumo-default">
-						{folderName}
+						{folderName} {mailboxId === "all" && <span className="text-xs font-normal text-kumo-subtle">(All Mailboxes)</span>}
 					</h1>
 					<div className="flex items-center gap-1">
 						{totalCount > 0 && (
@@ -379,6 +379,11 @@ export default function EmailListRoute() {
 												>
 													{formatParticipants(email)}
 												</span>
+												{mailboxId === "all" && email.mailbox_id && (
+													<Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-normal shrink-0">
+														{email.mailbox_id}
+													</Badge>
+												)}
 												{(email.thread_count ?? 1) > 1 && (
 													<span className="shrink-0 text-xs text-kumo-subtle bg-kumo-fill rounded-full px-1.5 py-0.5 font-medium">
 														{email.thread_count}

@@ -3,16 +3,16 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import {
+	Badge,
 	Button,
 	Dialog,
-	Empty,
 	Input,
 	Loader,
 	Select,
 	Text,
 	useKumoToastManager,
 } from "@cloudflare/kumo";
-import { EnvelopeIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
+import { EnvelopeIcon, EnvelopeSimpleIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link as RouterLink } from "react-router";
@@ -21,6 +21,7 @@ import {
 	useCreateMailbox,
 	useDeleteMailbox,
 	useMailboxes,
+	useUpdateMailbox,
 } from "~/queries/mailboxes";
 import { queryKeys } from "~/queries/keys";
 
@@ -33,6 +34,7 @@ export default function HomeRoute() {
 	const { data: mailboxes = [], refetch: refetchMailboxes, isFetched: mailboxesFetched } = useMailboxes();
 	const createMailbox = useCreateMailbox();
 	const deleteMailbox = useDeleteMailbox();
+	const updateMailbox = useUpdateMailbox();
 
 	const { data: configData } = useQuery({
 		queryKey: queryKeys.config,
@@ -49,14 +51,26 @@ export default function HomeRoute() {
 	const [customDomain, setCustomDomain] = useState("");
 	const [useCustomSubdomain, setUseCustomSubdomain] = useState(false);
 	const [newName, setNewName] = useState("");
+	const [newForwardTo, setNewForwardTo] = useState("");
 	const [isCreating, setIsCreating] = useState(false);
 	const [createError, setCreateError] = useState<string | null>(null);
+
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 	const [mailboxToDelete, setMailboxToDelete] = useState<{
 		id: string;
 		email: string;
 	} | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
+
+	// Forwarding edit state
+	const [isForwardOpen, setIsForwardOpen] = useState(false);
+	const [mailboxToEditForward, setMailboxToEditForward] = useState<{
+		id: string;
+		email: string;
+		forwardTo: string;
+	} | null>(null);
+	const [forwardInput, setForwardInput] = useState("");
+	const [isSavingForward, setIsSavingForward] = useState(false);
 
 	// Set default domain when config loads
 	useEffect(() => {
@@ -109,13 +123,15 @@ export default function HomeRoute() {
 		}
 
 		const name = newName.trim() || email.split("@")[0];
+		const forwardTo = newForwardTo.trim() || undefined;
 		setIsCreating(true);
 		try {
-			await createMailbox.mutateAsync({ email, name });
+			await createMailbox.mutateAsync({ email, name, forwardTo });
 			toastManager.add({ title: "Mailbox created successfully!" });
 			setIsCreateOpen(false);
 			setNewPrefix("");
 			setNewName("");
+			setNewForwardTo("");
 			setCustomDomain("");
 			setUseCustomSubdomain(false);
 		} catch (err: unknown) {
@@ -125,7 +141,6 @@ export default function HomeRoute() {
 			setIsCreating(false);
 		}
 	};
-
 
 	const handleDelete = async () => {
 		if (!mailboxToDelete) return;
@@ -142,13 +157,36 @@ export default function HomeRoute() {
 		}
 	};
 
+	const handleSaveForward = async (e: FormEvent) => {
+		e.preventDefault();
+		if (!mailboxToEditForward) return;
+		setIsSavingForward(true);
+		try {
+			await updateMailbox.mutateAsync({
+				mailboxId: mailboxToEditForward.id,
+				forwardTo: forwardInput.trim() || undefined,
+			});
+			toastManager.add({ title: "Forwarding address updated!" });
+			setIsForwardOpen(false);
+			setMailboxToEditForward(null);
+		} catch {
+			toastManager.add({ title: "Failed to update forwarding address", variant: "error" });
+		} finally {
+			setIsSavingForward(false);
+		}
+	};
+
 	const isConfigured = emailAddresses.length > 0;
 	const accounts = isConfigured
-		? emailAddresses.map((addr) => ({
-				id: addr,
-				email: addr,
-				name: addr.split("@")[0] || addr,
-			}))
+		? emailAddresses.map((addr) => {
+				const found = mailboxes.find((m) => m.email.toLowerCase() === addr.toLowerCase());
+				return {
+					id: addr,
+					email: addr,
+					name: found?.name || addr.split("@")[0] || addr,
+					forwardTo: found?.forwardTo,
+				};
+		  })
 		: mailboxes;
 
 	const isLoading = !configData;
@@ -176,6 +214,30 @@ export default function HomeRoute() {
 					)}
 				</div>
 
+				{/* All Mailboxes Combined Inbox Entry */}
+				<RouterLink
+					to="/mailbox/all/emails/inbox"
+					className="group flex items-center gap-4 px-5 py-4 mb-6 rounded-xl border border-kumo-line bg-kumo-base no-underline transition-all hover:border-kumo-ring hover:bg-kumo-tint shadow-sm"
+				>
+					<div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-kumo-brand/10 text-kumo-brand font-bold">
+						<EnvelopeSimpleIcon size={22} weight="bold" />
+					</div>
+					<div className="min-w-0 flex-1">
+						<div className="flex items-center gap-2">
+							<span className="text-base font-semibold text-kumo-default">
+								All Mailboxes (Combined Inbox)
+							</span>
+							<Badge variant="primary">Unified View</Badge>
+						</div>
+						<div className="text-xs text-kumo-subtle mt-0.5">
+							View and manage emails from all mailboxes in a single stream
+						</div>
+					</div>
+					<div className="text-xs font-medium text-kumo-primary group-hover:translate-x-0.5 transition-transform">
+						View All Mails →
+					</div>
+				</RouterLink>
+
 				{isLoading ? (
 					<div className="flex justify-center py-20">
 						<Loader size="lg" />
@@ -200,25 +262,54 @@ export default function HomeRoute() {
 									<div className="text-sm text-kumo-subtle">
 										{account.email}
 									</div>
+									<div className="text-[11px] text-kumo-subtle mt-0.5 flex items-center gap-1.5">
+										{account.forwardTo ? (
+											<span className="text-green-600 dark:text-green-400 font-medium">
+												Forwarding to: {account.forwardTo}
+											</span>
+										) : (
+											<span className="italic">No forwarding set</span>
+										)}
+									</div>
 								</div>
-								{!isConfigured && (
+								<div className="flex items-center gap-1 shrink-0">
 									<Button
 										variant="ghost"
 										size="sm"
 										shape="square"
-										icon={<TrashIcon size={16} />}
-										aria-label={`Delete mailbox ${account.email}`}
+										icon={<PencilSimpleIcon size={16} />}
+										aria-label={`Edit forwarding for ${account.email}`}
 										onClick={(e) => {
 											e.preventDefault();
 											e.stopPropagation();
-											setMailboxToDelete({
+											setMailboxToEditForward({
 												id: account.id,
 												email: account.email,
+												forwardTo: account.forwardTo || "",
 											});
-											setIsDeleteOpen(true);
+											setForwardInput(account.forwardTo || "");
+											setIsForwardOpen(true);
 										}}
 									/>
-								)}
+									{!isConfigured && (
+										<Button
+											variant="ghost"
+											size="sm"
+											shape="square"
+											icon={<TrashIcon size={16} />}
+											aria-label={`Delete mailbox ${account.email}`}
+											onClick={(e) => {
+												e.preventDefault();
+												e.stopPropagation();
+												setMailboxToDelete({
+													id: account.id,
+													email: account.email,
+												});
+												setIsDeleteOpen(true);
+											}}
+										/>
+									)}
+								</div>
 							</RouterLink>
 						))}
 					</div>
@@ -341,6 +432,15 @@ export default function HomeRoute() {
 							onChange={(e) => setNewName(e.target.value)}
 						/>
 
+						<Input
+							label="Forwarding Email Address (optional)"
+							placeholder="e.g. personal@example.com"
+							type="email"
+							size="sm"
+							value={newForwardTo}
+							onChange={(e) => setNewForwardTo(e.target.value)}
+						/>
+
 						<div className="flex justify-end gap-2 pt-2">
 							<Dialog.Close
 								render={(props) => (
@@ -357,6 +457,54 @@ export default function HomeRoute() {
 								disabled={!selectedDomain}
 							>
 								Create
+							</Button>
+						</div>
+					</form>
+				</Dialog>
+			</Dialog.Root>
+
+			{/* Forwarding Edit Dialog */}
+			<Dialog.Root
+				open={isForwardOpen}
+				onOpenChange={(open) => {
+					setIsForwardOpen(open);
+					if (!open) setMailboxToEditForward(null);
+				}}
+			>
+				<Dialog size="sm" className="p-6">
+					<Dialog.Title className="text-base font-semibold mb-2">
+						Configure Forwarding Address
+					</Dialog.Title>
+					<Dialog.Description className="text-kumo-subtle text-xs mb-4">
+						Set or update the target forwarding email address for{" "}
+						<strong className="text-kumo-default">
+							{mailboxToEditForward?.email}
+						</strong>.
+					</Dialog.Description>
+					<form onSubmit={handleSaveForward} className="space-y-4">
+						<Input
+							label="Forwarding Email Address"
+							type="email"
+							placeholder="personal@example.com (leave blank to disable)"
+							size="sm"
+							value={forwardInput}
+							onChange={(e) => setForwardInput(e.target.value)}
+						/>
+						<div className="flex justify-end gap-2 pt-2">
+							<Dialog.Close
+								render={(props) => (
+									<Button {...props} variant="secondary" size="sm">
+										Cancel
+									</Button>
+								)}
+							/>
+							<Button
+								type="submit"
+								variant="primary"
+								size="sm"
+								loading={isSavingForward}
+							>
+								Save Forwarding Address
 							</Button>
 						</div>
 					</form>

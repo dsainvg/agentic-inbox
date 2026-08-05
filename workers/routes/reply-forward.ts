@@ -367,15 +367,18 @@ export async function handleGetThread(c: AppContext) {
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
 
+	const whereCond =
+		mailboxId === "all"
+			? eq(schema.emails.thread_id, threadId)
+			: and(
+					eq(schema.emails.mailbox_id, mailboxId),
+					eq(schema.emails.thread_id, threadId),
+				);
+
 	const rows = await db
 		.select()
 		.from(schema.emails)
-		.where(
-			and(
-				eq(schema.emails.mailbox_id, mailboxId),
-				eq(schema.emails.thread_id, threadId),
-			),
-		)
+		.where(whereCond)
 		.orderBy(asc(schema.emails.date));
 
 	return c.json(
@@ -394,15 +397,18 @@ export async function handleMarkThreadRead(c: AppContext) {
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
 
+	const whereCond =
+		mailboxId === "all"
+			? eq(schema.emails.thread_id, threadId)
+			: and(
+					eq(schema.emails.mailbox_id, mailboxId),
+					eq(schema.emails.thread_id, threadId),
+				);
+
 	await db
 		.update(schema.emails)
 		.set({ read: 1 })
-		.where(
-			and(
-				eq(schema.emails.mailbox_id, mailboxId),
-				eq(schema.emails.thread_id, threadId),
-			),
-		);
+		.where(whereCond);
 
 	return c.json({ status: "ok" });
 }
