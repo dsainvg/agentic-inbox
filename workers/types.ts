@@ -4,8 +4,8 @@
 
 export interface Env extends Cloudflare.Env {
 	DB: D1Database;
-	POLICY_AUD: string;
-	TEAM_DOMAIN: string;
+	POLICY_AUD?: string;
+	TEAM_DOMAIN?: string;
 	DOMAINS?: string;
 	EMAIL_ADDRESSES?: string[];
 }

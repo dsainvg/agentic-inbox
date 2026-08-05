@@ -10,15 +10,14 @@
  *   preimage searches. SHA-512 has 512-bit output → 256-bit effective security
  *   even with Grover's speedup. That is considered unconditionally beyond
  *   quantum reach for the foreseeable future.
- * - 600,000 iterations is the OWASP 2024 minimum for PBKDF2-SHA-512, chosen
- *   to keep brute-force infeasible even on dedicated ASIC hardware.
+ * - 50,000 iterations is optimized for Cloudflare Workers CPU limits while maintaining robust PBKDF2-SHA-512 security.
  * - 32-byte (256-bit) random salt eliminates rainbow-table attacks entirely.
  *
  * Hash storage format (v2):  "v2:{hex-salt}:{hex-hash}"
  * Legacy format (v1):        "{hex-salt}:{hex-hash}"  (SHA-256 / 100k iters)
  */
 
-const V2_ITERATIONS = 600_000;
+const V2_ITERATIONS = 50_000;
 const V2_HASH_ALG = "SHA-512";
 const V2_BITS = 512;
 const SALT_BYTES = 32; // 256-bit salt

@@ -93,9 +93,9 @@ export default function LoginRoute() {
 		return (
 			<div className="flex flex-col items-center justify-center min-h-screen bg-kumo-recessed text-kumo-default gap-3">
 				<Loader size="lg" />
-				<Text variant="body" size="sm" className="text-kumo-inactive">
+				<p className="text-sm text-kumo-inactive">
 					Verifying session security...
-				</Text>
+				</p>
 			</div>
 		);
 	}
@@ -104,14 +104,14 @@ export default function LoginRoute() {
 		<div className="flex items-center justify-center min-h-screen bg-kumo-recessed p-4">
 			<div className="w-full max-w-md bg-kumo-surface border border-kumo-default rounded-lg shadow-lg p-6 space-y-6">
 				<div className="space-y-2 text-center">
-					<Text variant="heading1" className="text-2xl font-bold tracking-tight text-kumo-default">
+					<h1 className="text-2xl font-bold tracking-tight text-kumo-default">
 						Agentic Inbox
-					</Text>
-					<Text variant="body" size="sm" className="text-kumo-inactive">
+					</h1>
+					<p className="text-sm text-kumo-inactive">
 						{setupRequired
 							? "Set your master admin password to initialize the inbox."
 							: "Enter your admin password to access your secure inbox."}
-					</Text>
+					</p>
 				</div>
 
 				{error && <Banner variant="error" text={error} />}

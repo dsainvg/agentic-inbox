@@ -65,6 +65,11 @@ function isDomainAllowed(email: string, envDomainsRaw?: string): boolean {
 
 const app = new Hono<MailboxContext>();
 
+app.onError((err, c) => {
+	console.error("API Error:", err);
+	return c.json({ error: err.message || "Internal Server Error" }, 500);
+});
+
 app.use(
 	"/api/*",
 	cors({
