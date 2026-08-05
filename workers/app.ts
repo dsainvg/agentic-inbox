@@ -26,6 +26,11 @@ const requestHandler = createRequestHandler(
 // Main app that wraps the API and adds React Router fallback
 const app = new Hono<{ Bindings: Env }>();
 
+app.onError((err, c) => {
+	console.error("Worker App Error:", err);
+	return c.json({ error: err.message || "Internal Server Error", stack: String(err.stack || err) }, 500);
+});
+
 // Session-based authentication middleware for API routes
 app.use("/api/v1/*", async (c, next) => {
 	const path = c.req.path;

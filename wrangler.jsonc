@@ -18,5 +18,11 @@
 			"database_name": "agentic-inbox-db",
 			"database_id": "a64fda88-12b1-4133-a641-e56d488c1dea"
 		}
+	],
+	"routes": [
+		{
+			"pattern": "mail.dsainvg.dpdns.org",
+			"custom_domain": true
+		}
 	]
 }
