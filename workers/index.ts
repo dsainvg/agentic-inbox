@@ -18,6 +18,16 @@ import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import { ensureDbInitialized } from "./db/init";
 import * as schema from "./db/schema";
 import { generateApiKey, listApiKeys, revokeApiKey, validateApiKey } from "./lib/api-keys";
+import {
+	handleSendEmail,
+	handleReplyEmail,
+	handleForwardEmail,
+	handleSaveDraft,
+	handleGetThread,
+	handleMarkThreadRead,
+} from "./routes/reply-forward";
+
+
 
 type AppContext = Context<MailboxContext>;
 
@@ -602,6 +612,13 @@ app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	});
 });
 
+app.post("/api/v1/mailboxes/:mailboxId/emails", handleSendEmail);
+app.post("/api/v1/mailboxes/:mailboxId/emails/:id/reply", handleReplyEmail);
+app.post("/api/v1/mailboxes/:mailboxId/emails/:id/forward", handleForwardEmail);
+app.post("/api/v1/mailboxes/:mailboxId/drafts", handleSaveDraft);
+app.get("/api/v1/mailboxes/:mailboxId/threads/:threadId", handleGetThread);
+app.post("/api/v1/mailboxes/:mailboxId/threads/:threadId/read", handleMarkThreadRead);
+
 app.get("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
@@ -641,6 +658,20 @@ app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 		starred?: boolean;
 	};
 
+	const existingRows = await db
+		.select()
+		.from(schema.emails)
+		.where(
+			and(
+				eq(schema.emails.id, emailId),
+				eq(schema.emails.mailbox_id, mailboxId),
+			),
+		)
+		.limit(1);
+
+	if (existingRows.length === 0) return c.json({ error: "Email not found" }, 404);
+	const existing = existingRows[0];
+
 	const updateData: Record<string, unknown> = {};
 	if (read !== undefined) updateData.read = read ? 1 : 0;
 	if (starred !== undefined) updateData.starred = starred ? 1 : 0;
@@ -656,6 +687,7 @@ app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 		);
 
 	const rows = await db
+
 		.select()
 		.from(schema.emails)
 		.where(
@@ -666,7 +698,6 @@ app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 		)
 		.limit(1);
 
-	if (rows.length === 0) return c.json({ error: "Email not found" }, 404);
 	const email = rows[0];
 	return c.json({
 		...email,
@@ -674,6 +705,7 @@ app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 		starred: Boolean(email.starred),
 	});
 });
+
 
 app.delete("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 	await ensureDbInitialized(c.env.DB);
@@ -823,8 +855,14 @@ async function receiveEmail(
 	await ensureDbInitialized(env.DB);
 	const db = drizzle(env.DB, { schema });
 
-	const rawEmail = await streamToArrayBuffer(event.raw, event.rawSize);
+	// Tee the raw stream into two independent branches:
+	// one for parsing/storing in D1, and one assigned back to event.raw for event.forward()
+	const [forParsing, forForwarding] = event.raw.tee();
+	(event as any).raw = forForwarding;
+
+	const rawEmail = await streamToArrayBuffer(forParsing, event.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);
+
 
 	if (!parsedEmail.to?.length || !parsedEmail.to[0].address)
 		throw new Error("received email with empty to");
@@ -911,8 +949,8 @@ async function receiveEmail(
 		raw_headers: JSON.stringify(parsedEmail.headers),
 	});
 
-	// 2. Email Forwarding: forward if forward_to is configured or forward event is available
-	const forwardAddress = mailboxRecord.forward_to;
+	// 2. Email Forwarding: forward if forward_to is configured or env.SMTP_USER is set
+	const forwardAddress = mailboxRecord.forward_to || env.SMTP_USER;
 	if (forwardAddress && typeof event.forward === "function") {
 		try {
 			await event.forward(forwardAddress);
@@ -924,3 +962,6 @@ async function receiveEmail(
 }
 
 export { app, receiveEmail };
+
+
+

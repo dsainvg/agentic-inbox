@@ -8,4 +8,11 @@ export interface Env extends Cloudflare.Env {
 	TEAM_DOMAIN?: string;
 	DOMAINS?: string;
 	EMAIL_ADDRESSES?: string[];
+	EMAIL?: SendEmail;
+	SMTP_HOST?: string;
+	SMTP_PORT?: string;
+	SMTP_USER?: string;
+	SMTP_PASS?: string;
 }
+
+
