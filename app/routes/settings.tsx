@@ -323,17 +323,58 @@ export default function SettingsRoute() {
 					</div>
 
 					{/* Documentation & Usage Snippet */}
-					<div className="mt-6 border-t border-kumo-line pt-4">
-						<div className="flex items-center gap-2 mb-2">
-							<CodeIcon size={14} className="text-kumo-subtle" />
-							<span className="text-xs font-medium text-kumo-default">
-								GET Request API Documentation
-							</span>
+					<div className="mt-6 border-t border-kumo-line pt-4 space-y-4">
+						<div>
+							<div className="flex items-center gap-2 mb-2">
+								<CodeIcon size={14} className="text-kumo-subtle" />
+								<span className="text-xs font-medium text-kumo-default">
+									POST Request API (Submit Message / Contact Form Ingestion)
+								</span>
+							</div>
+							<p className="text-xs text-kumo-subtle mb-2">
+								Send a POST request with <code className="text-kumo-default font-mono font-semibold">&#123; name, email, message &#125;</code> to deposit a message directly into <code className="text-kumo-default font-mono">{mailbox.email}</code> INBOX:
+							</p>
+							<pre className="p-3 rounded-md bg-kumo-recessed border border-kumo-line font-mono text-[11px] text-kumo-default overflow-x-auto">
+{`# Option 1: Direct endpoint for this mailbox (${mailbox.email}):
+curl -X POST "${currentOrigin}/api/v1/external/mailboxes/${mailbox.email}/messages" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "John Doe",
+    "email": "user@example.com",
+    "message": "Hello! I am submitting a contact message."
+  }'
+
+# Option 2: API Key authenticated endpoint:
+curl -X POST "${currentOrigin}/api/v1/external/messages" \\
+  -H "X-API-Key: ${sampleCurlKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "John Doe",
+    "email": "user@example.com",
+    "message": "Hello! I am submitting a contact message."
+  }'
+
+# Response payload format (201 Created):
+# {
+#   "success": true,
+#   "id": "c1f7a4b2-...",
+#   "mailbox": "${mailbox.email}",
+#   "statusCode": 201
+# }`}
+							</pre>
 						</div>
-						<p className="text-xs text-kumo-subtle mb-2">
-							Make a GET request to fetch email messages containing <code className="text-kumo-default font-mono">from</code> (sender), <code className="text-kumo-default font-mono">subject</code> (message title), and <code className="text-kumo-default font-mono">body</code> (message content):
-						</p>
-						<pre className="p-3 rounded-md bg-kumo-recessed border border-kumo-line font-mono text-[11px] text-kumo-default overflow-x-auto">
+
+						<div>
+							<div className="flex items-center gap-2 mb-2">
+								<CodeIcon size={14} className="text-kumo-subtle" />
+								<span className="text-xs font-medium text-kumo-default">
+									GET Request API Documentation (Fetch Inbox Messages)
+								</span>
+							</div>
+							<p className="text-xs text-kumo-subtle mb-2">
+								Make a GET request to fetch email messages containing <code className="text-kumo-default font-mono">from</code> (sender), <code className="text-kumo-default font-mono">subject</code> (message title), and <code className="text-kumo-default font-mono">body</code> (message content):
+							</p>
+							<pre className="p-3 rounded-md bg-kumo-recessed border border-kumo-line font-mono text-[11px] text-kumo-default overflow-x-auto">
 {`# 1. Fetch recent inbox emails for ${mailbox.email}:
 curl -X GET "${currentOrigin}/api/v1/external/messages?apiKey=${sampleCurlKey}"
 
@@ -357,8 +398,10 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 #     }
 #   ]
 # }`}
-						</pre>
+							</pre>
+						</div>
 					</div>
+
 				</div>
 
 				{/* Save */}

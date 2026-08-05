@@ -78,7 +78,55 @@ npm run deploy
 
 Any user who passes the shared Cloudflare Access policy can access all mailboxes in this app by design. This includes the MCP server at `/mcp` -- external AI tools (Claude Code, Cursor, etc.) connected via MCP can operate on any mailbox by passing a `mailboxId` parameter. There is no per-mailbox authorization; the Cloudflare Access policy is the single trust boundary.
 
+## External API (Ingestion & Fetching)
+
+Agentic Inbox provides external API endpoints for website contact forms, webhooks, and integrations to deposit incoming messages directly into a mailbox's INBOX or fetch stored messages using API keys.
+
+### 1. Deposit Message via API Key: `POST /api/v1/external/messages`
+
+Send a POST request with your mailbox's API key passed via `X-API-Key` header, `Authorization: Bearer <key>`, or `?apiKey=` query param.
+
+```bash
+curl -X POST "https://your-domain.com/api/v1/external/messages" \
+  -H "X-API-Key: your_mailbox_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "email": "john@example.com",
+    "message": "Hello! I would like to inquire about your services."
+  }'
+```
+
+### 2. Deposit Message via Mailbox Address: `POST /api/v1/external/mailboxes/:mailboxId/messages`
+
+Send a POST request directly to a target mailbox endpoint:
+
+```bash
+curl -X POST "https://your-domain.com/api/v1/external/mailboxes/hello@example.com/messages" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Smith",
+    "email": "jane@example.com",
+    "message": "New contact form message."
+  }'
+```
+
+**Response (`201 Created`):**
+```json
+{
+  "success": true,
+  "id": "c1f7a4b2-...",
+  "mailbox": "hello@example.com",
+  "statusCode": 201
+}
+```
+
+- **Subject line:** Formatted as `a mail from {email} in mailbox {mailbox name}`.
+- **Sender:** Formatted as `{name} <{email}>` (or `{email}`).
+- **Reply-To:** Injected in headers so replying to the email in Agentic Inbox targets `{email}`.
+
 ## Architecture
+
 
 ```
 ┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
