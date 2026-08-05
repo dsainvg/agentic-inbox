@@ -26,9 +26,10 @@
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_classes": ["EmailAgent"]
+			"new_sqlite_classes": ["EmailAgent"]
 		}
 	],
+
 	"d1_databases": [
 		{
 			"binding": "DB",
