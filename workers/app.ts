@@ -82,7 +82,7 @@ export default {
 			await receiveEmail(event, env, ctx);
 		} catch (e) {
 			console.error("Failed to process incoming email:", (e as Error).message, (e as Error).stack);
-			throw e;
 		}
 	},
 };
+

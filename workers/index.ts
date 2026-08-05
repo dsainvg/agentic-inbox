@@ -816,34 +816,37 @@ app.get("/api/v1/mailboxes/:mailboxId/search", async (c: AppContext) => {
 
 const MAX_EMAIL_SIZE = 25 * 1024 * 1024;
 
-async function streamToArrayBuffer(
-	stream: ReadableStream,
-	streamSize: number,
-) {
-	if (streamSize > MAX_EMAIL_SIZE)
-		throw new Error(
-			`Email too large: ${streamSize} bytes exceeds ${MAX_EMAIL_SIZE} byte limit`,
-		);
-	if (streamSize <= 0) throw new Error(`Invalid stream size: ${streamSize}`);
-	const result = new Uint8Array(streamSize);
-	let bytesRead = 0;
+async function streamToArrayBuffer(stream: ReadableStream): Promise<Uint8Array> {
 	const reader = stream.getReader();
+	const chunks: Uint8Array[] = [];
+	let totalLength = 0;
 	while (true) {
 		const { done, value } = await reader.read();
 		if (done) break;
-		if (bytesRead + value.length > streamSize) {
-			reader.cancel();
-			throw new Error(`Stream exceeds declared size`);
+		if (value) {
+			chunks.push(value);
+			totalLength += value.length;
+			if (totalLength > MAX_EMAIL_SIZE) {
+				reader.cancel();
+				throw new Error(`Email size exceeds ${MAX_EMAIL_SIZE} byte limit`);
+			}
 		}
-		result.set(value, bytesRead);
-		bytesRead += value.length;
+	}
+	const result = new Uint8Array(totalLength);
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.length;
 	}
 	return result;
 }
 
 export interface InboundEmailEvent {
+	from?: string;
+	to?: string;
+	headers?: Headers;
 	raw: ReadableStream;
-	rawSize: number;
+	rawSize?: number;
 	forward?: (rcptTo: string) => Promise<void>;
 }
 
@@ -852,116 +855,132 @@ async function receiveEmail(
 	env: Env,
 	ctx: ExecutionContext,
 ) {
-	await ensureDbInitialized(env.DB);
-	const db = drizzle(env.DB, { schema });
+	try {
+		await ensureDbInitialized(env.DB);
+		const db = drizzle(env.DB, { schema });
 
-	// Tee the raw stream into two independent branches:
-	// one for parsing/storing in D1, and one assigned back to event.raw for event.forward()
-	const [forParsing, forForwarding] = event.raw.tee();
-	(event as any).raw = forForwarding;
+		const mailboxId = (event.to || "").toLowerCase().trim();
 
-	const rawEmail = await streamToArrayBuffer(forParsing, event.rawSize);
-	const parsedEmail = await new PostalMime().parse(rawEmail);
+		let mailboxRecord: typeof schema.mailboxes.$inferSelect | undefined;
+		if (mailboxId) {
+			const mailboxRows = await db
+				.select()
+				.from(schema.mailboxes)
+				.where(eq(schema.mailboxes.id, mailboxId))
+				.limit(1);
+			if (mailboxRows.length > 0) {
+				mailboxRecord = mailboxRows[0];
+			}
+		}
 
+		// 1. Email Forwarding via Cloudflare Email Routing event.forward()
+		// Perform forwarding FIRST while event.raw stream is pristine
+		const forwardAddress = mailboxRecord?.forward_to || env.SMTP_USER;
+		if (forwardAddress && typeof event.forward === "function") {
+			try {
+				await event.forward(forwardAddress);
+				console.log(`Forwarded incoming email for ${mailboxId || "unknown"} to ${forwardAddress}`);
+			} catch (e) {
+				console.error(`Failed to forward email to ${forwardAddress}:`, (e as Error).message);
+			}
+		}
 
-	if (!parsedEmail.to?.length || !parsedEmail.to[0].address)
-		throw new Error("received email with empty to");
-
-	const allowedAddresses = (
-		(env.EMAIL_ADDRESSES ?? []) as string[]
-	).map((a) => a.toLowerCase());
-	const allRecipients = parsedEmail.to
-		.map((t) => t.address?.toLowerCase())
-		.filter(Boolean) as string[];
-
-	let mailboxId: string | undefined;
-	if (allowedAddresses.length > 0) {
-		mailboxId = allRecipients.find((addr) => allowedAddresses.includes(addr));
-		if (!mailboxId) {
-			console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`);
+		// 2. Read raw stream for D1 storage
+		let rawEmail: Uint8Array;
+		try {
+			rawEmail = await streamToArrayBuffer(event.raw);
+		} catch (e) {
+			console.error("Failed to read email raw stream:", (e as Error).message);
 			return;
 		}
-	} else {
-		mailboxId = allRecipients[0];
-	}
-	if (!mailboxId)
-		throw new Error("received email with no valid recipient address");
 
-	// Verify mailbox exists in D1
-	const mailboxRows = await db
-		.select()
-		.from(schema.mailboxes)
-		.where(eq(schema.mailboxes.id, mailboxId))
-		.limit(1);
-
-	if (mailboxRows.length === 0) {
-		console.log(
-			`Ignoring email for ${mailboxId}: mailbox does not exist in D1`,
-		);
-		return;
-	}
-
-	const mailboxRecord = mailboxRows[0];
-	const messageId = crypto.randomUUID();
-
-	const extractMsgId = (s: string) => {
-		const m = s.match(/<([^>]+)>/);
-		return m ? m[1] : s.trim().split(/\s+/)[0];
-	};
-	const inReplyTo = parsedEmail.inReplyTo
-		? extractMsgId(parsedEmail.inReplyTo)
-		: null;
-	const emailReferences = parsedEmail.references
-		? parsedEmail.references.split(/\s+/).filter(Boolean).map(extractMsgId)
-		: [];
-	const threadId = emailReferences[0] || inReplyTo || messageId;
-	const originalMessageId = parsedEmail.messageId
-		? extractMsgId(parsedEmail.messageId)
-		: null;
-
-	// 1. Store email in D1 (NO ATTACHMENTS stored)
-	await db.insert(schema.emails).values({
-		id: messageId,
-		mailbox_id: mailboxId,
-		folder_id: Folders.INBOX,
-		subject: parsedEmail.subject || "",
-		sender: (parsedEmail.from?.address || "").toLowerCase(),
-		recipient: allRecipients.join(", "),
-		cc:
-			(parsedEmail.cc || [])
-				.map((e) => e.address?.toLowerCase())
-				.filter(Boolean)
-				.join(", ") || null,
-		bcc:
-			(parsedEmail.bcc || [])
-				.map((e) => e.address?.toLowerCase())
-				.filter(Boolean)
-				.join(", ") || null,
-		date: new Date().toISOString(),
-		body: parsedEmail.html || parsedEmail.text || "",
-		read: 0,
-		starred: 0,
-		in_reply_to: inReplyTo,
-		email_references:
-			emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
-		thread_id: threadId,
-		message_id: originalMessageId,
-		raw_headers: JSON.stringify(parsedEmail.headers),
-	});
-
-	// 2. Email Forwarding: forward if forward_to is configured or env.SMTP_USER is set
-	const forwardAddress = mailboxRecord.forward_to || env.SMTP_USER;
-	if (forwardAddress && typeof event.forward === "function") {
+		let parsedEmail;
 		try {
-			await event.forward(forwardAddress);
-			console.log(`Forwarded incoming email for ${mailboxId} to ${forwardAddress}`);
+			parsedEmail = await new PostalMime().parse(rawEmail);
 		} catch (e) {
-			console.error(`Failed to forward email to ${forwardAddress}:`, (e as Error).message);
+			console.error("Failed to parse MIME email:", (e as Error).message);
+			return;
 		}
+
+		const parsedRecipients = (parsedEmail.to || [])
+			.map((t) => t.address?.toLowerCase())
+			.filter(Boolean) as string[];
+
+		const targetMailboxId = mailboxId || parsedRecipients[0];
+		if (!targetMailboxId) {
+			console.log("Ignoring email: no valid recipient found");
+			return;
+		}
+
+		if (!mailboxRecord) {
+			const mailboxRows = await db
+				.select()
+				.from(schema.mailboxes)
+				.where(eq(schema.mailboxes.id, targetMailboxId))
+				.limit(1);
+			if (mailboxRows.length > 0) {
+				mailboxRecord = mailboxRows[0];
+			} else {
+				console.log(`Ignoring email for ${targetMailboxId}: mailbox does not exist in D1`);
+				return;
+			}
+		}
+
+		const messageId = crypto.randomUUID();
+		const extractMsgId = (s: string) => {
+			const m = s.match(/<([^>]+)>/);
+			return m ? m[1] : s.trim().split(/\s+/)[0];
+		};
+		const inReplyTo = parsedEmail.inReplyTo
+			? extractMsgId(parsedEmail.inReplyTo)
+			: null;
+		const emailReferences = parsedEmail.references
+			? parsedEmail.references.split(/\s+/).filter(Boolean).map(extractMsgId)
+			: [];
+		const threadId = emailReferences[0] || inReplyTo || messageId;
+		const originalMessageId = parsedEmail.messageId
+			? extractMsgId(parsedEmail.messageId)
+			: null;
+
+		const allRecipients = Array.from(new Set([targetMailboxId, ...parsedRecipients]));
+
+		await db.insert(schema.emails).values({
+			id: messageId,
+			mailbox_id: targetMailboxId,
+			folder_id: Folders.INBOX,
+			subject: parsedEmail.subject || "(no subject)",
+			sender: (parsedEmail.from?.address || event.from || "").toLowerCase(),
+			recipient: allRecipients.join(", "),
+			cc:
+				(parsedEmail.cc || [])
+					.map((e) => e.address?.toLowerCase())
+					.filter(Boolean)
+					.join(", ") || null,
+			bcc:
+				(parsedEmail.bcc || [])
+					.map((e) => e.address?.toLowerCase())
+					.filter(Boolean)
+					.join(", ") || null,
+			date: new Date().toISOString(),
+			body: parsedEmail.html || parsedEmail.text || "",
+			read: 0,
+			starred: 0,
+			in_reply_to: inReplyTo,
+			email_references:
+				emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
+			thread_id: threadId,
+			message_id: originalMessageId,
+			raw_headers: JSON.stringify(parsedEmail.headers),
+		});
+
+		console.log(`Stored email ${messageId} in D1 for mailbox ${targetMailboxId}`);
+	} catch (e) {
+		console.error("Unhandled exception in receiveEmail:", (e as Error).message, (e as Error).stack);
 	}
 }
 
 export { app, receiveEmail };
+
 
 
 
