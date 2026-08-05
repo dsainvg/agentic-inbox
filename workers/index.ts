@@ -704,18 +704,34 @@ app.get("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 						eq(schema.emails.folder_id, folder),
 					);
 
-	const emailRows = await db
-		.select()
-		.from(schema.emails)
-		.where(filterCondition)
-		.orderBy(desc(schema.emails.date))
-		.limit(limit)
-		.offset(offset);
+	let emailRows;
+	let totalCountResult;
 
-	const totalCountResult = await db
-		.select({ count: count() })
-		.from(schema.emails)
-		.where(filterCondition);
+	if (filterCondition) {
+		emailRows = await db
+			.select()
+			.from(schema.emails)
+			.where(filterCondition)
+			.orderBy(desc(schema.emails.date))
+			.limit(limit)
+			.offset(offset);
+
+		totalCountResult = await db
+			.select({ count: count() })
+			.from(schema.emails)
+			.where(filterCondition);
+	} else {
+		emailRows = await db
+			.select()
+			.from(schema.emails)
+			.orderBy(desc(schema.emails.date))
+			.limit(limit)
+			.offset(offset);
+
+		totalCountResult = await db
+			.select({ count: count() })
+			.from(schema.emails);
+	}
 
 	const totalCount = totalCountResult[0]?.count || 0;
 
@@ -904,14 +920,21 @@ app.get("/api/v1/mailboxes/:mailboxId/search", async (c: AppContext) => {
 	const limit = Math.min(intQuery(c, "limit") || 25, 100);
 	const offset = (page - 1) * limit;
 
-	const searchFilter = and(
-		eq(schema.emails.mailbox_id, mailboxId),
-		or(
-			like(schema.emails.subject, `%${queryStr}%`),
-			like(schema.emails.body, `%${queryStr}%`),
-			like(schema.emails.sender, `%${queryStr}%`),
-		),
-	);
+	const searchFilter =
+		mailboxId === "all"
+			? or(
+					like(schema.emails.subject, `%${queryStr}%`),
+					like(schema.emails.body, `%${queryStr}%`),
+					like(schema.emails.sender, `%${queryStr}%`),
+				)
+			: and(
+					eq(schema.emails.mailbox_id, mailboxId),
+					or(
+						like(schema.emails.subject, `%${queryStr}%`),
+						like(schema.emails.body, `%${queryStr}%`),
+						like(schema.emails.sender, `%${queryStr}%`),
+					),
+				);
 
 	const emailRows = await db
 		.select()

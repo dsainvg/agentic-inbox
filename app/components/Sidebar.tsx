@@ -144,7 +144,7 @@ export default function Sidebar() {
 					</button>
 					{mailboxId !== "all" && (
 						<NavLink
-							to="/mailbox/all/emails/inbox"
+							to="/mailbox/all/emails/all_mail"
 							onClick={handleNavClick}
 							className="text-xs text-kumo-link hover:underline font-medium"
 						>

@@ -215,7 +215,7 @@ export default function HomeRoute() {
 
 				{/* All Mailboxes Combined Inbox Entry */}
 				<RouterLink
-					to="/mailbox/all/emails/inbox"
+					to="/mailbox/all/emails/all_mail"
 					className="group flex items-center justify-between px-5 py-3.5 mb-6 rounded-xl border border-kumo-line bg-kumo-base no-underline transition-all hover:border-kumo-ring hover:bg-kumo-tint shadow-sm"
 				>
 					<div className="min-w-0 flex-1">
