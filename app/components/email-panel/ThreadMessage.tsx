@@ -37,7 +37,7 @@ interface ThreadMessageProps {
 	onPreviewImage?: (url: string, filename: string) => void;
 }
 
-function Avatar({ isDraft, isSelf, sender }: { isDraft?: boolean; isSelf: boolean; sender: string }) {
+function Avatar({ isDraft, isSelf, sender }: { isDraft?: boolean; isSelf: boolean; sender?: string }) {
 	return (
 		<div
 			className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
@@ -48,7 +48,7 @@ function Avatar({ isDraft, isSelf, sender }: { isDraft?: boolean; isSelf: boolea
 						: "bg-kumo-fill text-kumo-default"
 			}`}
 		>
-			{isDraft ? "D" : sender.charAt(0).toUpperCase()}
+			{isDraft ? "D" : (sender || "").charAt(0).toUpperCase() || "?"}
 		</div>
 	);
 }
@@ -68,9 +68,9 @@ export default function ThreadMessage({
 	onViewSource,
 	onPreviewImage,
 }: ThreadMessageProps) {
-	const isSelf = email.sender === mailboxEmail;
+	const isSelf = Boolean(mailboxEmail && email.sender === mailboxEmail);
 	const containerClassName = `${!isLast ? "border-b border-kumo-line" : ""} ${isDraft ? "border-l-2 border-l-kumo-warning bg-kumo-warning/[0.02]" : ""}`;
-	const senderLabel = isDraft ? "Draft reply" : isSelf ? "You" : email.sender;
+	const senderLabel = isDraft ? "Draft reply" : isSelf ? "You" : (email.sender || "Unknown");
 
 	if (!isExpanded) {
 		return (

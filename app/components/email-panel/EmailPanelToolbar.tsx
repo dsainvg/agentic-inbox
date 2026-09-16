@@ -17,6 +17,7 @@ import {
 	PencilSimpleIcon,
 	StarIcon,
 	SparkleIcon,
+	TrashIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import type { Folder, Email } from "~/types";

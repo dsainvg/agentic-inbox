@@ -24,13 +24,13 @@ export default function SingleMessageView({
 				<div className="flex items-center justify-between gap-3">
 					<div className="flex items-center gap-2.5 min-w-0">
 						<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-xs font-bold text-kumo-default">
-							{email.sender.charAt(0).toUpperCase()}
+							{(email.sender || "").charAt(0).toUpperCase() || "?"}
 						</div>
 						<div className="min-w-0">
 							<div className="text-sm font-medium text-kumo-default truncate">
-								{email.sender}
+								{email.sender || "Unknown"}
 							</div>
-							<div className="text-xs text-kumo-subtle">To: {email.recipient}</div>
+							<div className="text-xs text-kumo-subtle">To: {email.recipient || "Unknown"}</div>
 						</div>
 					</div>
 					<span className="text-xs text-kumo-subtle shrink-0">
