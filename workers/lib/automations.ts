@@ -19,6 +19,7 @@ import {
 	parseAutomationActions,
 	type AutomationAction,
 } from "../../shared/automations";
+import { SYSTEM_FOLDER_IDS } from "../../shared/folders";
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Rule = typeof schema.automationRules.$inferSelect;
@@ -162,7 +163,7 @@ async function sendAutoReply(
 		}
 	} catch {}
 
-	const subject = email.subject.startsWith("re:")
+	const subject = email.subject.toLowerCase().startsWith("re:")
 		? email.subject
 		: `Re: ${email.subject}`;
 
@@ -420,14 +421,16 @@ export async function executeAutomations(
 	outcome.matchedRuleId = rule.id;
 	const actions = parseAutomationActions(rule.actions);
 
-	// Existing folders in this mailbox — for validating folder targets.
-	let validFolders = new Set<string>();
+	// Existing folders in this mailbox (system folders + custom folders)
+	let validFolders = new Set<string>(SYSTEM_FOLDER_IDS as readonly string[]);
 	try {
 		const rows = await db
 			.select({ name: schema.folders.name })
 			.from(schema.folders)
 			.where(eq(schema.folders.mailbox_id, mailboxId));
-		validFolders = new Set(rows.map((r) => r.name));
+		for (const r of rows) {
+			validFolders.add(r.name);
+		}
 	} catch (e) {
 		console.error("Automation folder lookup failed:", (e as Error).message);
 	}

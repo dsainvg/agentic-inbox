@@ -29,7 +29,7 @@ function safeParse(dateStr: string | undefined | null): Date | null {
  */
 export function formatListDate(dateStr: string): string {
 	const date = safeParse(dateStr);
-	if (!date) return dateStr;
+	if (!date) return dateStr || "";
 
 	const now = new Date();
 	if (date.toDateString() === now.toDateString()) {
@@ -57,7 +57,7 @@ export function formatListDate(dateStr: string): string {
  */
 export function formatDetailDate(dateStr: string): string {
 	const date = safeParse(dateStr);
-	if (!date) return dateStr;
+	if (!date) return dateStr || "";
 
 	return date.toLocaleDateString(undefined, {
 		weekday: "short",
@@ -74,7 +74,7 @@ export function formatDetailDate(dateStr: string): string {
  */
 export function formatShortDate(dateStr: string): string {
 	const date = safeParse(dateStr);
-	if (!date) return dateStr;
+	if (!date) return dateStr || "";
 
 	return date.toLocaleTimeString(undefined, {
 		hour: "numeric",

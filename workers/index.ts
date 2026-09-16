@@ -347,7 +347,7 @@ app.post("/api/v1/mailboxes", async (c) => {
 			id: `${email}:${fName}`,
 			mailbox_id: email,
 			name: fName,
-			is_deletable: fName === Folders.INBOX ? 0 : 1,
+			is_deletable: 0,
 		});
 	}
 
@@ -1030,27 +1030,59 @@ app.get("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
 	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
 
 	if (mailboxId === "all") {
+		const unreadCounts = await db
+			.select({
+				folder_id: schema.emails.folder_id,
+				count: count(),
+			})
+			.from(schema.emails)
+			.where(eq(schema.emails.read, 0))
+			.groupBy(schema.emails.folder_id);
+		const unreadMap = new Map(unreadCounts.map((u) => [u.folder_id, u.count]));
+
 		return c.json([
-			{ id: Folders.INBOX, name: Folders.INBOX, unreadCount: 0 },
-			{ id: Folders.SENT, name: Folders.SENT, unreadCount: 0 },
-			{ id: Folders.DRAFT, name: Folders.DRAFT, unreadCount: 0 },
-			{ id: Folders.ARCHIVE, name: Folders.ARCHIVE, unreadCount: 0 },
-			{ id: Folders.TRASH, name: Folders.TRASH, unreadCount: 0 },
+			{ id: Folders.INBOX, name: Folders.INBOX, unreadCount: unreadMap.get(Folders.INBOX) || 0 },
+			{ id: Folders.SENT, name: Folders.SENT, unreadCount: unreadMap.get(Folders.SENT) || 0 },
+			{ id: Folders.DRAFT, name: Folders.DRAFT, unreadCount: unreadMap.get(Folders.DRAFT) || 0 },
+			{ id: Folders.ARCHIVE, name: Folders.ARCHIVE, unreadCount: unreadMap.get(Folders.ARCHIVE) || 0 },
+			{ id: Folders.TRASH, name: Folders.TRASH, unreadCount: unreadMap.get(Folders.TRASH) || 0 },
 		]);
 	}
 
-	const rows = await db
-		.select()
-		.from(schema.folders)
-		.where(eq(schema.folders.mailbox_id, mailboxId));
+	const [rows, unreadCounts] = await Promise.all([
+		db
+			.select()
+			.from(schema.folders)
+			.where(eq(schema.folders.mailbox_id, mailboxId)),
+		db
+			.select({
+				folder_id: schema.emails.folder_id,
+				count: count(),
+			})
+			.from(schema.emails)
+			.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.read, 0)))
+			.groupBy(schema.emails.folder_id),
+	]);
 
-	return c.json(
-		rows.map((f) => ({
-			id: f.name,
-			name: f.name,
-			unreadCount: 0,
-		})),
-	);
+	const unreadMap = new Map(unreadCounts.map((u) => [u.folder_id, u.count]));
+	const returnedFolderNames = new Set(rows.map((f) => f.name));
+	const result = rows.map((f) => ({
+		id: f.name,
+		name: f.name,
+		unreadCount: unreadMap.get(f.name) || 0,
+	}));
+
+	for (const sysFolder of [Folders.INBOX, Folders.SENT, Folders.DRAFT, Folders.ARCHIVE, Folders.TRASH]) {
+		if (!returnedFolderNames.has(sysFolder)) {
+			result.unshift({
+				id: sysFolder,
+				name: sysFolder,
+				unreadCount: unreadMap.get(sysFolder) || 0,
+			});
+		}
+	}
+
+	return c.json(result);
 });
 
 const MAX_FOLDER_NAME_LENGTH = 64;
@@ -1129,7 +1161,12 @@ app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) 
 	const existing = await db
 		.select()
 		.from(schema.folders)
-		.where(and(eq(schema.folders.mailbox_id, mailboxId), eq(schema.folders.name, folderId)))
+		.where(
+			and(
+				eq(schema.folders.mailbox_id, mailboxId),
+				or(eq(schema.folders.name, folderId), eq(schema.folders.id, folderId)),
+			),
+		)
 		.limit(1);
 	if (existing.length === 0) {
 		return c.json({ error: "Folder not found" }, 404);
@@ -1144,6 +1181,8 @@ app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) 
 		return c.json({ error: "A folder with this name already exists" }, 409);
 	}
 
+	const oldName = existing[0].name;
+
 	// Keep the stored row id in sync with the new name, and carry the
 	// folder's emails over (emails reference folders by name).
 	await db
@@ -1154,10 +1193,10 @@ app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) 
 	await db
 		.update(schema.emails)
 		.set({ folder_id: name })
-		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, folderId)));
+		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, oldName)));
 
 	// Keep automation rules pointing at the renamed folder
-	await retargetRulesForFolderRename(db, mailboxId, folderId, name);
+	await retargetRulesForFolderRename(db, mailboxId, oldName, name);
 
 	return c.json({ id: name, name, unreadCount: 0 });
 });
@@ -1178,20 +1217,27 @@ app.delete("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContex
 	const existing = await db
 		.select()
 		.from(schema.folders)
-		.where(and(eq(schema.folders.mailbox_id, mailboxId), eq(schema.folders.name, folderId)))
+		.where(
+			and(
+				eq(schema.folders.mailbox_id, mailboxId),
+				or(eq(schema.folders.name, folderId), eq(schema.folders.id, folderId)),
+			),
+		)
 		.limit(1);
 	if (existing.length === 0) {
 		return c.json({ error: "Folder not found" }, 404);
 	}
 
+	const oldName = existing[0].name;
+
 	// Preserve emails by moving them to Archive instead of orphaning them.
 	await db
 		.update(schema.emails)
 		.set({ folder_id: Folders.ARCHIVE })
-		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, folderId)));
+		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, oldName)));
 
 	// Drop automation rules that file into this folder
-	await cleanupRulesForFolder(db, mailboxId, folderId);
+	await cleanupRulesForFolder(db, mailboxId, oldName);
 
 	await db.delete(schema.folders).where(eq(schema.folders.id, existing[0].id));
 
@@ -1252,6 +1298,11 @@ function validateAutomationBody(body: {
 				return { error: "Auto-reply body must be 5000 characters or fewer", status: 400 };
 			}
 		}
+		if (a.type === "ai_reply" && a.prompt) {
+			if (a.prompt.length > 1000) {
+				return { error: "AI reply guidance must be 1000 characters or fewer", status: 400 };
+			}
+		}
 	}
 
 	return {
@@ -1266,7 +1317,7 @@ function collectActionFolders(actions: AutomationAction[]): string[] {
 	const out: string[] = [];
 	for (const a of actions) {
 		if (a.type === "file") out.push(a.folder);
-		if (a.type === "auto_reply") {
+		if (a.type === "auto_reply" || a.type === "ai_reply") {
 			if (a.onSuccessFolder) out.push(a.onSuccessFolder);
 			if (a.onFailureFolder) out.push(a.onFailureFolder);
 		}
@@ -1285,7 +1336,7 @@ async function allFoldersExist(
 		.select({ name: schema.folders.name })
 		.from(schema.folders)
 		.where(eq(schema.folders.mailbox_id, mailboxId));
-	const known = new Set(rows.map((r) => r.name));
+	const known = new Set([...rows.map((r) => r.name), ...SYSTEM_FOLDER_IDS]);
 	return folders.every((f) => known.has(f));
 }
 

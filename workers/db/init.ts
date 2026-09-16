@@ -18,10 +18,10 @@ async function migrateAutomationRules(db: D1Database) {
 			)
 			.first();
 		if (legacy) {
-			await db.prepare(`DROP TABLE automation_rules`).run();
-			await db
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS automation_rules (
+			await db.batch([
+				db.prepare(`DROP TABLE IF EXISTS automation_rules`),
+				db.prepare(`
+					CREATE TABLE IF NOT EXISTS automation_rules (
 						id TEXT PRIMARY KEY,
 						mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
 						match_field TEXT NOT NULL,
@@ -29,10 +29,10 @@ async function migrateAutomationRules(db: D1Database) {
 						actions TEXT NOT NULL DEFAULT '[]',
 						enabled INTEGER NOT NULL DEFAULT 1,
 						created_at TEXT NOT NULL
-					);
-					CREATE INDEX IF NOT EXISTS idx_automation_rules_mailbox ON automation_rules(mailbox_id);`,
-				)
-				.run();
+					)
+				`),
+				db.prepare(`CREATE INDEX IF NOT EXISTS idx_automation_rules_mailbox ON automation_rules(mailbox_id)`),
+			]);
 			console.log("Migrated legacy automation_rules table to actions-based schema");
 		}
 	} catch (e) {
@@ -111,8 +111,7 @@ export async function ensureDbInitialized(db: D1Database) {
 					mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
 					match_field TEXT NOT NULL,
 					match_value TEXT NOT NULL,
-					target_folder TEXT NOT NULL,
-					mark_read INTEGER NOT NULL DEFAULT 0,
+					actions TEXT NOT NULL DEFAULT '[]',
 					enabled INTEGER NOT NULL DEFAULT 1,
 					created_at TEXT NOT NULL
 				);
@@ -122,6 +121,22 @@ export async function ensureDbInitialized(db: D1Database) {
 			`),
 		]);
 		await migrateAutomationRules(db);
+		// Ensure standard system folders exist for all mailboxes
+		await db
+			.prepare(
+				`INSERT OR IGNORE INTO folders (id, mailbox_id, name, is_deletable)
+				SELECT m.id || ':' || f.name, m.id, f.name, 0
+				FROM mailboxes m
+				CROSS JOIN (
+					SELECT 'inbox' AS name UNION ALL
+					SELECT 'sent' UNION ALL
+					SELECT 'draft' UNION ALL
+					SELECT 'archive' UNION ALL
+					SELECT 'trash'
+				) f`,
+			)
+			.run()
+			.catch((e) => console.error("System folders seed failed:", (e as Error).message));
 		dbInitialized = true;
 	} catch (e) {
 		console.error("Failed to initialize D1 database schema:", e);

@@ -72,9 +72,17 @@ export function isAutomationAction(v: unknown): v is AutomationAction {
 		case "star":
 			return true;
 		case "auto_reply":
-			return typeof a.body === "string";
+			return (
+				typeof a.body === "string" &&
+				(a.onSuccessFolder === undefined || typeof a.onSuccessFolder === "string") &&
+				(a.onFailureFolder === undefined || typeof a.onFailureFolder === "string")
+			);
 		case "ai_reply":
-			return a.prompt === undefined || typeof a.prompt === "string";
+			return (
+				(a.prompt === undefined || typeof a.prompt === "string") &&
+				(a.onSuccessFolder === undefined || typeof a.onSuccessFolder === "string") &&
+				(a.onFailureFolder === undefined || typeof a.onFailureFolder === "string")
+			);
 		default:
 			return false;
 	}

@@ -80,7 +80,7 @@ function FolderLink({
 				)}
 			</NavLink>
 			{actions && (
-				<div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover/folder:flex items-center gap-0.5 bg-kumo-base rounded-md shadow-sm border border-kumo-line px-0.5">
+				<div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover/folder:flex group-focus-within/folder:flex items-center gap-0.5 bg-kumo-base rounded-md shadow-sm border border-kumo-line px-0.5">
 					{actions}
 				</div>
 			)}
@@ -140,6 +140,11 @@ export default function Sidebar() {
 			{
 				onSuccess: () => {
 					queryClient.invalidateQueries({ queryKey: ["automations", mailboxId] });
+					queryClient.invalidateQueries({ queryKey: ["emails", mailboxId] });
+					// If the renamed folder is currently open, navigate to its new URL
+					if (currentFolder === editingFolder.id || currentFolder === editingFolder.name) {
+						navigate(`/mailbox/${mailboxId}/emails/${encodeURIComponent(newName)}`);
+					}
 					toastManager.add({ title: "Folder renamed" });
 				},
 				onError: () => {
@@ -158,8 +163,9 @@ export default function Sidebar() {
 			{
 				onSuccess: () => {
 					queryClient.invalidateQueries({ queryKey: ["automations", mailboxId] });
+					queryClient.invalidateQueries({ queryKey: ["emails", mailboxId] });
 					// If the deleted folder is open, move the user back to the Inbox
-					if (currentFolder === deletedId) {
+					if (currentFolder === deletedId || currentFolder === folderToDelete.name) {
 						navigate(`/mailbox/${mailboxId}/emails/inbox`);
 					}
 					toastManager.add({ title: "Folder deleted", description: "Its emails were moved to Archive" });
@@ -272,7 +278,7 @@ export default function Sidebar() {
 						{customFolders.map((folder) => (
 							<FolderLink
 								key={folder.id}
-								to={`/mailbox/${mailboxId}/emails/${folder.id}`}
+								to={`/mailbox/${mailboxId}/emails/${encodeURIComponent(folder.id)}`}
 								icon={<FolderIcon size={18} />}
 								label={folder.name}
 								unreadCount={folder.unreadCount}

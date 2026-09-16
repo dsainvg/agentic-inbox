@@ -247,8 +247,12 @@ export default function SettingsRoute() {
 			setMatchValue("");
 			setDraftActions([]);
 			toastManager.add({ title: "Automation created!" });
-		} catch {
-			toastManager.add({ title: "Failed to create automation", variant: "error" });
+		} catch (err) {
+			toastManager.add({
+				title: "Failed to create automation",
+				description: err instanceof Error ? err.message : undefined,
+				variant: "error",
+			});
 		}
 	};
 
@@ -256,8 +260,12 @@ export default function SettingsRoute() {
 		if (!mailboxId) return;
 		try {
 			await updateAutomationMutation.mutateAsync({ mailboxId, ruleId, patch: { enabled } });
-		} catch {
-			toastManager.add({ title: "Failed to update automation", variant: "error" });
+		} catch (err) {
+			toastManager.add({
+				title: "Failed to update automation",
+				description: err instanceof Error ? err.message : undefined,
+				variant: "error",
+			});
 		}
 	};
 
@@ -266,8 +274,12 @@ export default function SettingsRoute() {
 		try {
 			await deleteAutomationMutation.mutateAsync({ mailboxId, ruleId });
 			toastManager.add({ title: "Automation deleted" });
-		} catch {
-			toastManager.add({ title: "Failed to delete automation", variant: "error" });
+		} catch (err) {
+			toastManager.add({
+				title: "Failed to delete automation",
+				description: err instanceof Error ? err.message : undefined,
+				variant: "error",
+			});
 		}
 	};
 

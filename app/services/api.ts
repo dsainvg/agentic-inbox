@@ -172,9 +172,9 @@ const api = {
 	createFolder: (mailboxId: string, name: string) =>
 		post<Folder>(`/api/v1/mailboxes/${mailboxId}/folders`, { name }),
 	updateFolder: (mailboxId: string, id: string, name: string) =>
-		put<Folder>(`/api/v1/mailboxes/${mailboxId}/folders/${id}`, { name }),
+		put<Folder>(`/api/v1/mailboxes/${mailboxId}/folders/${encodeURIComponent(id)}`, { name }),
 	deleteFolder: (mailboxId: string, id: string) =>
-		del<void>(`/api/v1/mailboxes/${mailboxId}/folders/${id}`),
+		del<void>(`/api/v1/mailboxes/${mailboxId}/folders/${encodeURIComponent(id)}`),
 
 	// Automations
 	listAutomations: (mailboxId: string) =>
