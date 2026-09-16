@@ -21,6 +21,15 @@ export const requireMailbox = createMiddleware<MailboxContext>(async (c, next) =
 	if (!rawId) return c.json({ error: "Mailbox ID required" }, 400);
 	const mailboxId = decodeURIComponent(rawId).toLowerCase();
 
+	// "all" is a virtual mailbox (aggregated view across every mailbox),
+	// not a row in the mailboxes table — let it through so the route
+	// handlers can apply their own mailboxId === "all" special-casing.
+	if (mailboxId === "all") {
+		c.set("mailboxId", mailboxId);
+		await next();
+		return;
+	}
+
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
 
