@@ -91,14 +91,14 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 
 	const moveToFolders = useMemo(() => { const cur = folder || email?.folder_id; return folders.filter((f) => f.id !== cur); }, [folders, folder, email?.folder_id]);
 
-	if (!email) return <EmailPanelSkeleton />;
-
 	// Reset summary when selected email changes
 	useEffect(() => {
 		setIsSummaryOpen(false);
 		setSummaryContent(null);
 		setSummaryError(null);
 	}, [currentEmailId]);
+
+	if (!email) return <EmailPanelSkeleton />;
 
 	const fetchSummary = (forThread: boolean) => {
 		if (!mailboxId || !email) return;
