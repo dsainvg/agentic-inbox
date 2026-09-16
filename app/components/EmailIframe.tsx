@@ -59,39 +59,63 @@ export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 		const iframe = iframeRef.current;
 		if (!iframe || !body) return;
 
-		const cleanBody = DOMPurify.sanitize(body, {
-			USE_PROFILES: { html: true },
-			FORBID_TAGS: ["style"],
-			ADD_ATTR: ["target"],
-			FORCE_BODY: true,
-		});
+		const isHtml = /<[a-z][\s\S]*>/i.test(body);
+
+		let cleanBody = "";
+		if (!isHtml) {
+			// Plain-text email: sanitize without tags and preserve newlines and whitespace
+			const escaped = DOMPurify.sanitize(body, {
+				ALLOWED_TAGS: [],
+				ALLOWED_ATTR: [],
+			});
+			cleanBody = `<div class="plain-text-body">${escaped}</div>`;
+		} else {
+			cleanBody = DOMPurify.sanitize(body, {
+				USE_PROFILES: { html: true },
+				ADD_ATTR: ["target"],
+				FORCE_BODY: true,
+			});
+		}
 
 		const padding = autoSize ? "0" : "24px";
 
-		// Height-reporting script: sends body.scrollHeight to the parent.
-		// Runs inside the opaque-origin sandbox so it has zero access to
-		// the parent page — it can only postMessage.
+		// Height-reporting script: sends full body/content height to parent.
+		// Uses ResizeObserver and image listeners for dynamic loading content.
 		const heightScript = autoSize
 			? `<script>
 				function reportHeight() {
-					var h = document.body.scrollHeight;
+					var h = Math.max(
+						document.body ? document.body.scrollHeight : 0,
+						document.documentElement ? document.documentElement.scrollHeight : 0,
+						document.body ? document.body.offsetHeight : 0,
+						document.documentElement ? document.documentElement.offsetHeight : 0
+					);
 					if (h > 0) parent.postMessage({ __emailIframeHeight: true, height: h }, "*");
 				}
+				window.addEventListener('load', reportHeight);
+				document.addEventListener('DOMContentLoaded', reportHeight);
 				reportHeight();
 				setTimeout(reportHeight, 50);
 				setTimeout(reportHeight, 150);
 				setTimeout(reportHeight, 400);
+				setTimeout(reportHeight, 1000);
+				if (window.ResizeObserver && document.body) {
+					new ResizeObserver(reportHeight).observe(document.body);
+				}
+				document.querySelectorAll('img').forEach(function(img) {
+					img.addEventListener('load', reportHeight);
+					img.addEventListener('error', reportHeight);
+				});
 			<\/script>`
 			: "";
 
 		// Use srcdoc so the iframe is truly sandboxed (no same-origin access).
-		// We can't use doc.write() because that requires allow-same-origin.
 		iframe.srcdoc = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: cid: https:; script-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: cid: https: http:; script-src 'unsafe-inline';">
 <style>
 * { box-sizing: border-box; }
 html {
@@ -102,7 +126,7 @@ body {
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 	font-size: 14px;
 	line-height: 1.65;
-	color: rgba(255, 255, 255, 0.88);
+	color: rgba(255, 255, 255, 0.9);
 	background: transparent;
 	padding: ${padding};
 	margin: 0;
@@ -110,16 +134,24 @@ body {
 	overflow-wrap: break-word;
 	${autoSize ? "overflow: hidden;" : ""}
 }
+.plain-text-body {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: inherit;
+	font-size: 14px;
+	line-height: 1.65;
+	color: rgba(255, 255, 255, 0.9);
+}
 [style*="position: fixed"], [style*="position:fixed"], [style*="position: absolute"], [style*="position:absolute"] {
 	position: relative !important;
 }
 a { color: #60a5fa; text-decoration: underline; text-underline-offset: 2px; }
-img { max-width: 100%; height: auto; }
+img { max-width: 100% !important; height: auto; }
 blockquote {
-	border-left: 2px solid rgba(255, 255, 255, 0.15);
+	border-left: 2px solid rgba(255, 255, 255, 0.2);
 	padding-left: 1em;
-	margin-left: 0;
-	color: rgba(255, 255, 255, 0.5);
+	margin: 8px 0;
+	color: rgba(255, 255, 255, 0.55);
 }
 pre {
 	background: rgba(255, 255, 255, 0.05);
@@ -128,13 +160,31 @@ pre {
 	overflow-x: auto;
 	font-size: 13px;
 	color: rgba(255, 255, 255, 0.85);
-	border: 1px solid rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.07);
+}
+code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
 }
 table { border-collapse: collapse; max-width: 100%; color: inherit; }
-td, th { padding: 6px 10px; border-color: rgba(255, 255, 255, 0.1); }
-p { margin: 4px 0; }
-h1, h2, h3 { margin: 12px 0 6px; color: rgba(255, 255, 255, 0.95); font-weight: 600; }
-ul, ol { padding-left: 20px; margin: 4px 0; }
+td, th { padding: 6px 10px; }
+p { margin: 6px 0; }
+h1, h2, h3, h4 { margin: 14px 0 6px; color: rgba(255, 255, 255, 0.95); font-weight: 600; }
+ul, ol { padding-left: 24px; margin: 6px 0; }
+li { margin: 2px 0; }
+
+/* Dark mode text readability protection for inline black colors */
+[style*="color: rgb(0, 0, 0)"],
+[style*="color:rgb(0,0,0)"],
+[style*="color: #000"],
+[style*="color:#000"],
+[style*="color: black"],
+[style*="color:black"],
+[style*="color: #111"],
+[style*="color: #222"],
+[style*="color: #333"] {
+	color: rgba(255, 255, 255, 0.9) !important;
+}
 </style>
 </head>
 <body>${cleanBody}${heightScript}</body>

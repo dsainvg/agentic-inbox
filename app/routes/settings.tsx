@@ -361,12 +361,13 @@ export default function SettingsRoute() {
 	const sampleCurlKey = newlyCreatedKey || "ag_key_sample123456789";
 
 	return (
-		<div className="max-w-2xl px-5 py-6 md:px-8 md:py-8 h-full overflow-y-auto bg-[#0f0f0f]">
-			<h1 className="text-[20px] font-bold text-white/95 mb-6 tracking-tight">Settings</h1>
+		<div className="w-full h-full overflow-y-auto bg-[#0f0f0f]">
+			<div className="max-w-4xl mx-auto px-6 py-8 md:px-10 md:py-10">
+				<h1 className="text-[22px] font-bold text-white/95 mb-8 tracking-tight">Settings</h1>
 
-			<div className="space-y-6">
-				{/* Account */}
-				<div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-4">
+				<div className="space-y-8">
+					{/* Account */}
+					<div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-4">
 					<div>
 						<div className="text-[14px] font-semibold text-white/90">Account</div>
 						<div className="text-[12px] text-white/40">Manage your mailbox profile and forwarding destination.</div>
@@ -944,5 +945,6 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 				</div>
 			</div>
 		</div>
-	);
+	</div>
+);
 }
