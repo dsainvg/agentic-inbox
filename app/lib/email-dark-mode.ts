@@ -267,8 +267,10 @@ export function adaptStyleString(styleStr: string): string {
 				return `${property}: ${value.replace(color, adapted)}`;
 			}
 		} else if (property === "color") {
-			const adapted = adaptTextColor(value);
-			return `${property}: ${adapted}`;
+			const important = value.match(/\s*!important\s*$/i)?.[0] ?? "";
+			const colorValue = important ? value.slice(0, value.length - important.length).trim() : value;
+			const adapted = adaptTextColor(colorValue);
+			return `${property}: ${adapted}${important}`;
 		} else if (property.includes("border") && property.includes("color")) {
 			const adapted = adaptBorderColor(value);
 			return `${property}: ${adapted}`;
