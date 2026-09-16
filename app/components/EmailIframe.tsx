@@ -4,6 +4,7 @@
 
 import DOMPurify from "dompurify";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { processEmailDarkMode } from "~/lib/email-dark-mode";
 
 interface EmailIframeProps {
 	body: string;
@@ -12,24 +13,13 @@ interface EmailIframeProps {
 }
 
 /**
- * Renders email HTML inside a sandboxed iframe.
- *
- * Security model:
- * - DOMPurify sanitises the HTML before injection.
- * - The iframe sandbox does NOT include `allow-same-origin`, so even if
- *   DOMPurify has a bypass the attacker's code runs in an opaque origin
- *   with no access to the parent page's cookies, DOM, or API.
- * - Because the iframe is cross-origin we cannot read `contentDocument`
- *   for auto-sizing. Instead, the injected HTML includes a tiny inline
- *   script that posts its body height to the parent via `postMessage`.
- *   The `allow-scripts` flag is required for this, but scripts inside
- *   the opaque-origin sandbox cannot access anything useful.
- * - A strict CSP meta tag blocks external resource loads inside the
- *   iframe as a defense-in-depth layer.
+ * Renders email HTML inside a sandboxed iframe with automatic dark mode adaptation.
+ * Includes a toggle switch allowing users to switch between adapted Dark Mode and Original Light view.
  */
 export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const [height, setHeight] = useState(autoSize ? 100 : 0);
+	const [forceOriginalMode, setForceOriginalMode] = useState(false);
 
 	// Listen for height reports from the sandboxed iframe
 	const handleMessage = useCallback(
@@ -70,7 +60,9 @@ export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 			});
 			cleanBody = `<div class="plain-text-body">${escaped}</div>`;
 		} else {
-			cleanBody = DOMPurify.sanitize(body, {
+			// Apply Dark Mode Engine unless user forced original rendering
+			const processedHtml = forceOriginalMode ? body : processEmailDarkMode(body);
+			cleanBody = DOMPurify.sanitize(processedHtml, {
 				USE_PROFILES: { html: true },
 				ADD_ATTR: ["target"],
 				FORCE_BODY: true,
@@ -78,6 +70,7 @@ export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 		}
 
 		const padding = autoSize ? "0" : "24px";
+		const isDark = !forceOriginalMode;
 
 		// Height-reporting script: sends full body/content height to parent.
 		// Uses ResizeObserver and image listeners for dynamic loading content.
@@ -119,15 +112,15 @@ export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 <style>
 * { box-sizing: border-box; }
 html {
-	background: transparent;
-	color-scheme: dark;
+	background: ${isDark ? "transparent" : "#ffffff"};
+	color-scheme: ${isDark ? "dark" : "light"};
 }
 body {
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 	font-size: 14px;
 	line-height: 1.65;
-	color: rgba(255, 255, 255, 0.9);
-	background: transparent;
+	color: ${isDark ? "rgba(255, 255, 255, 0.9)" : "#111827"};
+	background: ${isDark ? "transparent" : "#ffffff"};
 	padding: ${padding};
 	margin: 0;
 	word-wrap: break-word;
@@ -140,27 +133,27 @@ body {
 	font-family: inherit;
 	font-size: 14px;
 	line-height: 1.65;
-	color: rgba(255, 255, 255, 0.9);
+	color: ${isDark ? "rgba(255, 255, 255, 0.9)" : "#111827"};
 }
 [style*="position: fixed"], [style*="position:fixed"], [style*="position: absolute"], [style*="position:absolute"] {
 	position: relative !important;
 }
-a { color: #60a5fa; text-decoration: underline; text-underline-offset: 2px; }
+a { color: ${isDark ? "#60a5fa" : "#2563eb"}; text-decoration: underline; text-underline-offset: 2px; }
 img { max-width: 100% !important; height: auto; }
 blockquote {
-	border-left: 2px solid rgba(255, 255, 255, 0.2);
+	border-left: 2px solid ${isDark ? "rgba(255, 255, 255, 0.2)" : "#e5e7eb"};
 	padding-left: 1em;
 	margin: 8px 0;
-	color: rgba(255, 255, 255, 0.55);
+	color: ${isDark ? "rgba(255, 255, 255, 0.65)" : "#4b5563"};
 }
 pre {
-	background: rgba(255, 255, 255, 0.05);
+	background: ${isDark ? "rgba(255, 255, 255, 0.05)" : "#f3f4f6"};
 	padding: 12px;
 	border-radius: 8px;
 	overflow-x: auto;
 	font-size: 13px;
-	color: rgba(255, 255, 255, 0.85);
-	border: 1px solid rgba(255, 255, 255, 0.07);
+	color: ${isDark ? "rgba(255, 255, 255, 0.85)" : "#1f2937"};
+	border: 1px solid ${isDark ? "rgba(255, 255, 255, 0.07)" : "#e5e7eb"};
 }
 code {
 	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -169,11 +162,14 @@ code {
 table { border-collapse: collapse; max-width: 100%; color: inherit; }
 td, th { padding: 6px 10px; }
 p { margin: 6px 0; }
-h1, h2, h3, h4 { margin: 14px 0 6px; color: rgba(255, 255, 255, 0.95); font-weight: 600; }
+h1, h2, h3, h4 { margin: 14px 0 6px; color: ${isDark ? "rgba(255, 255, 255, 0.95)" : "#111827"}; font-weight: 600; }
 ul, ol { padding-left: 24px; margin: 6px 0; }
 li { margin: 2px 0; }
 
-/* Dark mode text readability protection for inline black colors */
+/* Dark mode text readability protection for inline dark colors */
+${
+	isDark
+		? `
 [style*="color: rgb(0, 0, 0)"],
 [style*="color:rgb(0,0,0)"],
 [style*="color: #000"],
@@ -182,22 +178,39 @@ li { margin: 2px 0; }
 [style*="color:black"],
 [style*="color: #111"],
 [style*="color: #222"],
-[style*="color: #333"] {
+[style*="color: #333"],
+[style*="color: #444"],
+[style*="color: #555"] {
 	color: rgba(255, 255, 255, 0.9) !important;
+}
+`
+		: ""
 }
 </style>
 </head>
 <body>${cleanBody}${heightScript}</body>
 </html>`;
-	}, [body, autoSize]);
+	}, [body, autoSize, forceOriginalMode]);
 
 	return (
-		<iframe
-			ref={iframeRef}
-			className="block w-full border-0"
-			style={autoSize ? { height: `${height}px` } : { height: "100%" }}
-			sandbox="allow-scripts allow-popups allow-top-navigation-by-user-activation"
-			title="Email content"
-		/>
+		<div className="relative group/email-iframe">
+			<div className="absolute top-0 right-0 z-10 opacity-0 group-hover/email-iframe:opacity-100 focus-within:opacity-100 transition-opacity pb-2">
+				<button
+					type="button"
+					onClick={() => setForceOriginalMode((prev) => !prev)}
+					className="text-[10px] font-medium px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors border border-white/10"
+					title="Toggle between adapted Dark Mode and Original layout rendering"
+				>
+					{forceOriginalMode ? "Show Dark Mode" : "Show Original"}
+				</button>
+			</div>
+			<iframe
+				ref={iframeRef}
+				className="block w-full border-0"
+				style={autoSize ? { height: `${height}px` } : { height: "100%" }}
+				sandbox="allow-scripts allow-popups allow-top-navigation-by-user-activation"
+				title="Email content"
+			/>
+		</div>
 	);
 }
