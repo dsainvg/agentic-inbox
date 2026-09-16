@@ -12,7 +12,7 @@ import { z } from "zod";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, like, or, count, desc, asc } from "drizzle-orm";
 
-import { Folders } from "../shared/folders";
+import { Folders, SYSTEM_FOLDER_IDS } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import { ensureDbInitialized } from "./db/init";
@@ -906,6 +906,145 @@ app.get("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
 			unreadCount: 0,
 		})),
 	);
+});
+
+const MAX_FOLDER_NAME_LENGTH = 64;
+
+function isSystemFolder(name: string): boolean {
+	return (SYSTEM_FOLDER_IDS as readonly string[]).includes(name.toLowerCase());
+}
+
+function validateFolderName(raw: unknown): { name: string } | { error: string; status: number } {
+	const name = typeof raw === "string" ? raw.trim() : "";
+	if (!name) return { error: "Folder name is required", status: 400 };
+	if (name.length > MAX_FOLDER_NAME_LENGTH) {
+		return { error: `Folder name must be ${MAX_FOLDER_NAME_LENGTH} characters or fewer`, status: 400 };
+	}
+	if (isSystemFolder(name)) {
+		return { error: "Folder name conflicts with a system folder", status: 409 };
+	}
+	return { name };
+}
+
+app.post("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	if (mailboxId === "all") {
+		return c.json({ error: "Cannot create folders on the aggregated All Mailboxes view" }, 400);
+	}
+
+	const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
+	const validated = validateFolderName(body.name);
+	if ("error" in validated) {
+		return c.json({ error: validated.error }, validated.status as any);
+	}
+	const { name } = validated;
+
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const existing = await db
+		.select()
+		.from(schema.folders)
+		.where(and(eq(schema.folders.mailbox_id, mailboxId), eq(schema.folders.name, name)))
+		.limit(1);
+	if (existing.length > 0) {
+		return c.json({ error: "Folder already exists" }, 409);
+	}
+
+	await db.insert(schema.folders).values({
+		id: `${mailboxId}:${name}`,
+		mailbox_id: mailboxId,
+		name,
+		is_deletable: 1,
+	});
+
+	return c.json({ id: name, name, unreadCount: 0 }, 201);
+});
+
+app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	if (mailboxId === "all") {
+		return c.json({ error: "Cannot rename folders on the aggregated All Mailboxes view" }, 400);
+	}
+	const folderId = decodeURIComponent(c.req.param("folderId")!);
+	if (isSystemFolder(folderId)) {
+		return c.json({ error: "System folders cannot be renamed" }, 400);
+	}
+
+	const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
+	const validated = validateFolderName(body.name);
+	if ("error" in validated) {
+		return c.json({ error: validated.error }, validated.status as any);
+	}
+	const { name } = validated;
+
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const existing = await db
+		.select()
+		.from(schema.folders)
+		.where(and(eq(schema.folders.mailbox_id, mailboxId), eq(schema.folders.name, folderId)))
+		.limit(1);
+	if (existing.length === 0) {
+		return c.json({ error: "Folder not found" }, 404);
+	}
+
+	const duplicate = await db
+		.select()
+		.from(schema.folders)
+		.where(and(eq(schema.folders.mailbox_id, mailboxId), eq(schema.folders.name, name)))
+		.limit(1);
+	if (duplicate.length > 0) {
+		return c.json({ error: "A folder with this name already exists" }, 409);
+	}
+
+	// Keep the stored row id in sync with the new name, and carry the
+	// folder's emails over (emails reference folders by name).
+	await db
+		.update(schema.folders)
+		.set({ id: `${mailboxId}:${name}`, name })
+		.where(eq(schema.folders.id, existing[0].id));
+
+	await db
+		.update(schema.emails)
+		.set({ folder_id: name })
+		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, folderId)));
+
+	return c.json({ id: name, name, unreadCount: 0 });
+});
+
+app.delete("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	if (mailboxId === "all") {
+		return c.json({ error: "Cannot delete folders on the aggregated All Mailboxes view" }, 400);
+	}
+	const folderId = decodeURIComponent(c.req.param("folderId")!);
+	if (isSystemFolder(folderId)) {
+		return c.json({ error: "System folders cannot be deleted" }, 400);
+	}
+
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const existing = await db
+		.select()
+		.from(schema.folders)
+		.where(and(eq(schema.folders.mailbox_id, mailboxId), eq(schema.folders.name, folderId)))
+		.limit(1);
+	if (existing.length === 0) {
+		return c.json({ error: "Folder not found" }, 404);
+	}
+
+	// Preserve emails by moving them to Archive instead of orphaning them.
+	await db
+		.update(schema.emails)
+		.set({ folder_id: Folders.ARCHIVE })
+		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, folderId)));
+
+	await db.delete(schema.folders).where(eq(schema.folders.id, existing[0].id));
+
+	return c.body(null, 204);
 });
 
 // -- Search (D1) ----------------------------------------------------
