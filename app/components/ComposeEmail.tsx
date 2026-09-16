@@ -43,8 +43,8 @@ export default function ComposeEmail() {
 			open={isComposeModalOpen}
 			onOpenChange={(open) => !open && !isSending && closeComposeModal()}
 		>
-			<Dialog size="lg" className="p-6 max-h-[85vh] overflow-y-auto">
-				<Dialog.Title className="text-lg font-semibold mb-5">
+			<Dialog size="lg" className="p-7 max-h-[85vh] overflow-y-auto bg-[#111111] border border-white/[0.08] rounded-2xl">
+				<Dialog.Title className="text-[17px] font-semibold text-white/90 mb-5">
 					{formTitle}
 				</Dialog.Title>
 				<form onSubmit={(e) => handleSend(e, closeComposeModal)} className="space-y-4">
@@ -65,7 +65,7 @@ export default function ComposeEmail() {
 							<button
 								type="button"
 								onClick={() => setShowCcBcc(true)}
-								className="shrink-0 text-xs text-kumo-link hover:text-kumo-link-hover font-medium mt-5"
+								className="shrink-0 text-[12px] text-white/40 hover:text-white/80 font-medium mt-5"
 							>
 								CC / BCC
 							</button>
@@ -101,16 +101,19 @@ export default function ComposeEmail() {
 						required
 					/>
 					<div>
-						<Text size="sm" DANGEROUS_className="font-medium mb-1.5 block">
+						<Text size="sm" DANGEROUS_className="font-medium text-white/70 mb-1.5 block">
 							Message
 						</Text>
-						<RichTextEditor value={body} onChange={setBody} />
+						<div className="border border-white/[0.07] rounded-xl overflow-hidden bg-[#0d0d0d]">
+							<RichTextEditor value={body} onChange={setBody} />
+						</div>
 					</div>
 					<div className="flex justify-between items-center pt-2">
 						<Button
 							type="button"
 							variant="ghost"
 							size="sm"
+							className="text-white/50 hover:text-white/80"
 							onClick={closeComposeModal}
 							disabled={isSending}
 						>

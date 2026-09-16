@@ -95,15 +95,15 @@ export default function EmailIframe({ body, autoSize }: EmailIframeProps) {
 <style>
 * { box-sizing: border-box; }
 html {
-	background: #ffffff;
-	color-scheme: light;
+	background: transparent;
+	color-scheme: dark;
 }
 body {
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 	font-size: 14px;
-	line-height: 1.6;
-	color: #1a1a1a;
-	background: #ffffff;
+	line-height: 1.65;
+	color: rgba(255, 255, 255, 0.88);
+	background: transparent;
 	padding: ${padding};
 	margin: 0;
 	word-wrap: break-word;
@@ -113,25 +113,27 @@ body {
 [style*="position: fixed"], [style*="position:fixed"], [style*="position: absolute"], [style*="position:absolute"] {
 	position: relative !important;
 }
-a { color: #2563eb; }
+a { color: #60a5fa; text-decoration: underline; text-underline-offset: 2px; }
 img { max-width: 100%; height: auto; }
 blockquote {
-	border-left: 3px solid #d1d5db;
+	border-left: 2px solid rgba(255, 255, 255, 0.15);
 	padding-left: 1em;
 	margin-left: 0;
-	color: #6b7280;
+	color: rgba(255, 255, 255, 0.5);
 }
 pre {
-	background: #f3f4f6;
+	background: rgba(255, 255, 255, 0.05);
 	padding: 12px;
-	border-radius: 6px;
+	border-radius: 8px;
 	overflow-x: auto;
 	font-size: 13px;
+	color: rgba(255, 255, 255, 0.85);
+	border: 1px solid rgba(255, 255, 255, 0.06);
 }
-table { border-collapse: collapse; max-width: 100%; }
-td, th { padding: 4px 8px; }
+table { border-collapse: collapse; max-width: 100%; color: inherit; }
+td, th { padding: 6px 10px; border-color: rgba(255, 255, 255, 0.1); }
 p { margin: 4px 0; }
-h1, h2, h3 { margin: 8px 0 4px; }
+h1, h2, h3 { margin: 12px 0 6px; color: rgba(255, 255, 255, 0.95); font-weight: 600; }
 ul, ol { padding-left: 20px; margin: 4px 0; }
 </style>
 </head>

@@ -61,11 +61,11 @@ export default function EmailSummaryCard({
 	};
 
 	return (
-		<div className="mx-4 my-3 md:mx-6 rounded-lg border border-kumo-line bg-gradient-to-r from-kumo-base to-kumo-tint/50 p-3.5 text-xs shadow-xs transition-all">
-			<div className="flex items-center justify-between gap-2 pb-2 border-b border-kumo-line/60">
+		<div className="mx-5 my-3 md:mx-7 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-xs shadow-lg transition-all">
+			<div className="flex items-center justify-between gap-2 pb-3 border-b border-white/[0.06]">
 				<div className="flex items-center gap-2 flex-wrap">
-					<div className="flex items-center gap-1.5 font-semibold text-kumo-default text-xs">
-						<SparkleIcon size={16} weight="fill" className="text-amber-500 animate-pulse" />
+					<div className="flex items-center gap-1.5 font-semibold text-white/80 text-[12px]">
+						<SparkleIcon size={14} weight="fill" className="text-amber-400 animate-pulse" />
 						<span>AI Summary</span>
 					</div>
 					<Tooltip
@@ -77,20 +77,20 @@ export default function EmailSummaryCard({
 						side="bottom"
 						asChild
 					>
-						<Badge variant="secondary" className="cursor-help text-[11px]">
+						<Badge variant="secondary" className="cursor-help text-[10px] bg-white/[0.06] border-white/[0.1] text-white/50">
 							{formatModelName(model)}
 						</Badge>
 					</Tooltip>
 
 					{hasThread && onToggleThreadSummary && (
-						<div className="flex items-center rounded-md border border-kumo-line bg-kumo-base p-0.5 ml-2">
+						<div className="flex items-center rounded-lg border border-white/[0.08] bg-white/[0.03] p-0.5 ml-2">
 							<button
 								type="button"
 								onClick={() => onToggleThreadSummary(false)}
-								className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+								className={`px-2.5 py-1 rounded-md text-[11px] transition-colors ${
 									!isThreadSummarized
-										? "bg-kumo-fill font-medium text-kumo-default"
-										: "text-kumo-subtle hover:text-kumo-default"
+										? "bg-white/[0.08] font-medium text-white/80"
+										: "text-white/35 hover:text-white/70"
 								}`}
 							>
 								Single Email
@@ -98,10 +98,10 @@ export default function EmailSummaryCard({
 							<button
 								type="button"
 								onClick={() => onToggleThreadSummary(true)}
-								className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+								className={`px-2.5 py-1 rounded-md text-[11px] transition-colors ${
 									isThreadSummarized
-										? "bg-kumo-fill font-medium text-kumo-default"
-										: "text-kumo-subtle hover:text-kumo-default"
+										? "bg-white/[0.08] font-medium text-white/80"
+										: "text-white/35 hover:text-white/70"
 								}`}
 							>
 								Full Thread
@@ -147,45 +147,45 @@ export default function EmailSummaryCard({
 				</div>
 			</div>
 
-			<div className="pt-2.5">
+			<div className="pt-3">
 				{isLoading ? (
 					<div className="space-y-2 py-1">
-						<div className="flex items-center gap-2 text-kumo-subtle">
-							<span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-ping" />
+						<div className="flex items-center gap-2 text-white/35">
+							<span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
 							<span>Summarizing with Cloudflare Workers AI...</span>
 						</div>
-						<div className="h-2.5 w-5/6 rounded bg-kumo-fill animate-pulse" />
-						<div className="h-2.5 w-4/6 rounded bg-kumo-fill animate-pulse" />
-						<div className="h-2.5 w-3/4 rounded bg-kumo-fill animate-pulse" />
+						<div className="h-2 rounded-sm bg-white/[0.06] animate-pulse w-5/6" />
+						<div className="h-2 rounded-sm bg-white/[0.06] animate-pulse w-4/6" />
+						<div className="h-2 rounded-sm bg-white/[0.06] animate-pulse w-3/4" />
 					</div>
 				) : error ? (
-					<div className="flex items-center justify-between text-kumo-danger py-1">
+					<div className="flex items-center justify-between text-red-400/80 py-1 text-[12px]">
 						<span>{error}</span>
 						<Button size="sm" variant="secondary" onClick={onRegenerate}>
 							Retry
 						</Button>
 					</div>
 				) : summary ? (
-					<div className="prose-xs max-w-none text-kumo-default leading-relaxed">
+					<div className="prose-xs max-w-none text-white/75 leading-relaxed text-[13px]">
 						<Markdown
 							remarkPlugins={[remarkGfm]}
 							components={{
-								p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+								p: ({ children }) => <p className="mb-2 last:mb-0 text-white/75">{children}</p>,
 								strong: ({ children }) => (
-									<strong className="font-semibold text-kumo-default">{children}</strong>
+									<strong className="font-semibold text-white/90">{children}</strong>
 								),
 								ul: ({ children }) => (
-									<ul className="list-disc pl-4 mb-2 last:mb-0 space-y-1">{children}</ul>
+									<ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>
 								),
 								ol: ({ children }) => (
 									<ol className="list-decimal pl-4 mb-2 last:mb-0 space-y-1">{children}</ol>
 								),
-								li: ({ children }) => <li className="text-kumo-default">{children}</li>,
+								li: ({ children }) => <li className="text-white/70">{children}</li>,
 								h1: ({ children }) => <h4 className="font-semibold text-xs mb-1">{children}</h4>,
 								h2: ({ children }) => <h4 className="font-semibold text-xs mb-1">{children}</h4>,
 								h3: ({ children }) => <h5 className="font-semibold text-xs mb-0.5">{children}</h5>,
 								code: ({ children }) => (
-									<code className="bg-kumo-fill px-1 py-0.5 rounded text-[11px] font-mono">
+									<code className="bg-white/[0.06] px-1 py-0.5 rounded text-[11px] font-mono text-white/70">
 										{children}
 									</code>
 								),

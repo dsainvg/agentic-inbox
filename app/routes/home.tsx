@@ -191,11 +191,12 @@ export default function HomeRoute() {
 	const isLoading = !configData;
 
 	return (
-		<div className="min-h-screen bg-kumo-recessed">
-			<div className="mx-auto max-w-2xl px-4 py-8 md:px-6 md:py-16">
+		<div className="min-h-screen bg-[#090909]">
+			<div className="mx-auto max-w-xl px-4 py-10 md:px-6 md:py-16">
+				{/* Header */}
 				<div className="mb-8">
 					<div className="flex items-center justify-between">
-						<h1 className="text-2xl font-bold text-kumo-default">Mailboxes</h1>
+						<h1 className="text-[22px] font-bold text-white/90">Mailboxes</h1>
 						{!isConfigured && (
 							<Button
 								variant="primary"
@@ -207,7 +208,7 @@ export default function HomeRoute() {
 						)}
 					</div>
 					{domains.length > 0 && (
-						<p className="text-sm text-kumo-subtle mt-1">
+						<p className="text-[12px] text-white/35 mt-1.5">
 							{domains.join(", ")}
 						</p>
 					)}
@@ -216,19 +217,13 @@ export default function HomeRoute() {
 				{/* All Mailboxes Combined Inbox Entry */}
 				<RouterLink
 					to="/mailbox/all/emails/all_mail"
-					className="group flex items-center justify-between px-5 py-3.5 mb-6 rounded-xl border border-kumo-line bg-kumo-base no-underline transition-all hover:border-kumo-ring hover:bg-kumo-tint shadow-sm"
+					className="group flex items-center justify-between px-5 py-4 mb-5 rounded-2xl border border-white/[0.07] bg-[#111111] no-underline transition-all hover:border-white/[0.12] hover:bg-white/[0.04]"
 				>
 					<div className="min-w-0 flex-1">
-						<div className="text-sm font-semibold text-kumo-default">
-							All Mailboxes (Combined Inbox)
-						</div>
-						<div className="text-xs text-kumo-subtle mt-0.5">
-							View emails from all mailboxes in a single stream
-						</div>
+						<div className="text-[13px] font-semibold text-white/85">All Mailboxes</div>
+						<div className="text-[12px] text-white/35 mt-0.5">View emails from all mailboxes in a single stream</div>
 					</div>
-					<div className="text-xs font-medium text-kumo-primary group-hover:translate-x-0.5 transition-transform shrink-0 ml-4">
-						View All Mails →
-					</div>
+					<div className="text-[12px] font-medium text-white/40 group-hover:text-white/70 transition-colors shrink-0 ml-4">View All →</div>
 				</RouterLink>
 
 				{isLoading ? (
@@ -236,29 +231,23 @@ export default function HomeRoute() {
 						<Loader size="lg" />
 					</div>
 				) : accounts.length > 0 ? (
-					<div className="rounded-xl border border-kumo-line bg-kumo-base overflow-hidden">
+					<div className="rounded-2xl border border-white/[0.07] bg-[#111111] overflow-hidden">
 						{accounts.map((account, idx) => (
 							<RouterLink
 								key={account.id}
 								to={`/mailbox/${account.id}`}
-								className={`group flex items-center gap-4 px-5 py-4 no-underline transition-colors hover:bg-kumo-tint ${
-									idx > 0 ? "border-t border-kumo-line" : ""
+								className={`group flex items-center gap-4 px-5 py-4 no-underline transition-colors hover:bg-white/[0.03] ${
+									idx > 0 ? "border-t border-white/[0.06]" : ""
 								}`}
 							>
-								<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-sm font-bold text-kumo-default">
+								<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-[14px] font-bold text-white/70">
 									{account.name.charAt(0).toUpperCase()}
 								</div>
 								<div className="min-w-0 flex-1">
-									<div className="text-sm font-medium text-kumo-default truncate">
-										{account.name}
-									</div>
-									<div className="text-sm text-kumo-subtle">
-										{account.email}
-									</div>
+									<div className="text-[14px] font-medium text-white/85 truncate">{account.name}</div>
+									<div className="text-[12px] text-white/40">{account.email}</div>
 									{account.forwardTo && (
-										<div className="text-[11px] text-kumo-subtle mt-0.5">
-											Forwarding to: {account.forwardTo}
-										</div>
+										<div className="text-[11px] text-white/25 mt-0.5">Forwarding to: {account.forwardTo}</div>
 									)}
 								</div>
 								<div className="flex items-center gap-1 shrink-0">
@@ -266,7 +255,7 @@ export default function HomeRoute() {
 										variant="ghost"
 										size="sm"
 										shape="square"
-										icon={<PencilSimpleIcon size={16} />}
+										icon={<PencilSimpleIcon size={15} />}
 										aria-label={`Edit forwarding for ${account.email}`}
 										onClick={(e) => {
 											e.preventDefault();
@@ -285,7 +274,7 @@ export default function HomeRoute() {
 											variant="ghost"
 											size="sm"
 											shape="square"
-											icon={<TrashIcon size={16} />}
+											icon={<TrashIcon size={15} />}
 											aria-label={`Delete mailbox ${account.email}`}
 											onClick={(e) => {
 												e.preventDefault();
@@ -303,29 +292,19 @@ export default function HomeRoute() {
 						))}
 					</div>
 				) : (
-					<div className="rounded-xl border border-kumo-line bg-kumo-base py-16 px-6">
+					<div className="rounded-2xl border border-white/[0.07] bg-[#111111] py-16 px-6">
 						<div className="flex flex-col items-center text-center">
-							<div className="mb-4">
-								<EnvelopeIcon
-									size={48}
-									weight="thin"
-									className="text-kumo-subtle"
-								/>
+							<div className="mb-5 opacity-20">
+								<EnvelopeIcon size={44} weight="thin" className="text-white" />
 							</div>
-							<h3 className="text-base font-semibold text-kumo-default mb-1.5">
-								No mailboxes yet
-							</h3>
-							<p className="text-sm text-kumo-subtle max-w-sm mb-5">
+							<h3 className="text-[15px] font-semibold text-white/70 mb-2">No mailboxes yet</h3>
+							<p className="text-[13px] text-white/35 max-w-sm mb-6">
 								{isConfigured
 									? "Your email routing is configured but no mailboxes have been created yet. They will appear here automatically."
 									: "Create a mailbox to start sending and receiving emails with your domain."}
 							</p>
 							{!isConfigured && (
-								<Button
-									variant="primary"
-									icon={<PlusIcon size={16} />}
-									onClick={() => setIsCreateOpen(true)}
-								>
+								<Button variant="primary" icon={<PlusIcon size={15} />} onClick={() => setIsCreateOpen(true)}>
 									Create Mailbox
 								</Button>
 							)}

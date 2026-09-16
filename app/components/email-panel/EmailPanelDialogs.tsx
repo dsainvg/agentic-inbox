@@ -81,18 +81,18 @@ export default function EmailPanelDialogs({
 						)}
 					</Dialog.Title>
 					{sourceViewEmail && (
-						<div className="mt-4 max-h-[60vh] overflow-y-auto">
-							<table className="w-full text-sm border-collapse">
+						<div className="mt-4 max-h-[60vh] overflow-y-auto rounded-xl border border-white/[0.06] bg-[#0d0d0d]">
+							<table className="w-full text-xs border-collapse">
 								<tbody>
 									{sourceHeaders.map((header, idx) => (
 										<tr
 											key={`${header.key}-${idx}`}
-											className={idx % 2 === 0 ? "bg-kumo-tint/50" : ""}
+											className={idx % 2 === 0 ? "bg-white/[0.02]" : ""}
 										>
-											<td className="py-1.5 px-3 font-mono font-semibold text-kumo-default whitespace-nowrap align-top w-[160px]">
+											<td className="py-2 px-3.5 font-mono font-medium text-white/80 whitespace-nowrap align-top w-[160px] border-b border-white/[0.04]">
 												{header.key}
 											</td>
-											<td className="py-1.5 px-3 font-mono text-kumo-subtle break-all">
+											<td className="py-2 px-3.5 font-mono text-white/45 break-all border-b border-white/[0.04]">
 												{header.value}
 											</td>
 										</tr>
@@ -100,7 +100,7 @@ export default function EmailPanelDialogs({
 								</tbody>
 							</table>
 							{sourceHeaders.length === 0 && (
-								<p className="text-sm text-kumo-subtle text-center py-8">
+								<p className="text-xs text-white/35 text-center py-8">
 									No header data available for this email.
 								</p>
 							)}
@@ -125,11 +125,11 @@ export default function EmailPanelDialogs({
 				<Dialog size="lg">
 					<Dialog.Title>{previewImage?.filename}</Dialog.Title>
 					{previewImage && (
-						<div className="mt-4 flex flex-col items-center justify-center bg-kumo-tint/30 rounded-lg p-4 min-h-[200px]">
+						<div className="mt-4 flex flex-col items-center justify-center bg-[#0d0d0d] border border-white/[0.06] rounded-xl p-4 min-h-[200px]">
 							<img
 								src={previewImage.url}
 								alt={previewImage.filename}
-								className="max-w-full max-h-[70vh] object-contain rounded shadow-sm"
+								className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl"
 							/>
 						</div>
 					)}

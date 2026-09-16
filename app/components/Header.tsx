@@ -56,74 +56,62 @@ export default function Header() {
 	const isSettingsActive = location.pathname.includes("/settings");
 
 	return (
-		<header className="flex items-center gap-2 px-3 py-2.5 bg-kumo-base border-b border-kumo-line sticky top-0 z-10 md:px-5 md:gap-4">
+		<header className="flex items-center gap-3 px-4 py-2 bg-[#0a0a0a] border-b border-white/[0.05] sticky top-0 z-10 h-12">
 			{/* Hamburger menu - mobile only */}
-			<Button
-				variant="ghost"
-				shape="square"
-				size="sm"
-				icon={<ListIcon size={20} />}
+			<button
+				type="button"
 				onClick={toggleSidebar}
 				aria-label="Toggle sidebar"
-				className="md:hidden shrink-0"
-			/>
+				className="md:hidden shrink-0 p-1.5 rounded-md text-white/50 hover:text-white/80 hover:bg-white/6 transition-colors cursor-pointer"
+			>
+				<ListIcon size={18} />
+			</button>
 
 			{/* Search - full on desktop, collapsible on mobile */}
 			<div
-				className={`flex-1 max-w-lg transition-all flex items-center gap-1 ${
+				className={`flex-1 max-w-xl transition-all flex items-center gap-1 ${
 					isSearchExpanded ? "flex" : "hidden md:flex"
 				}`}
 			>
-				<div className="flex-1 relative flex items-center">
-					<Input
-						className="w-full"
+				<div className="flex-1 relative flex items-center bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 h-8 gap-2 focus-within:border-white/20 focus-within:bg-white/[0.07] transition-all">
+					<MagnifyingGlassIcon size={14} className="text-white/30 shrink-0" />
+					<input
 						aria-label="Search emails"
-						placeholder="Search emails... (try from:name, is:unread, has:attachment)"
+						placeholder="Search emails… (try from:name, is:unread, has:attachment)"
 						value={searchQuery}
 						onChange={(e) => setSearchQuery(e.target.value)}
 						onKeyDown={handleKeyDown}
+						className="flex-1 bg-transparent text-[13px] text-white/90 placeholder:text-white/30 outline-none border-none"
 					/>
 					{searchQuery && (
 						<button
 							type="button"
 							onClick={clearSearch}
-							className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-tint transition-colors"
+							className="text-white/40 hover:text-white/80 transition-colors cursor-pointer shrink-0"
 							aria-label="Clear search"
 						>
-							<XIcon size={14} />
+							<XIcon size={13} />
 						</button>
 					)}
 				</div>
-				<Tooltip content="Search" side="bottom" asChild>
-					<Button
-						variant="ghost"
-						shape="square"
-						icon={<MagnifyingGlassIcon size={20} />}
-						onClick={performSearch}
-						aria-label="Search"
-					/>
-				</Tooltip>
 			</div>
 
 			{/* Search toggle button - mobile only, hidden when search is expanded */}
 			{!isSearchExpanded && (
-				<Button
-					variant="ghost"
-					shape="square"
-					size="sm"
-					icon={<MagnifyingGlassIcon size={20} />}
+				<button
+					type="button"
 					onClick={() => setIsSearchExpanded(true)}
 					aria-label="Search"
-					className="md:hidden shrink-0"
-				/>
+					className="md:hidden shrink-0 p-1.5 rounded-md text-white/50 hover:text-white/80 hover:bg-white/6 transition-colors cursor-pointer"
+				>
+					<MagnifyingGlassIcon size={18} />
+				</button>
 			)}
 
 			<div className="flex items-center gap-1 ml-auto shrink-0">
 				<Tooltip content="Settings" side="bottom" asChild>
-					<Button
-						variant={isSettingsActive ? "secondary" : "ghost"}
-						shape="square"
-						icon={<GearSixIcon size={20} />}
+					<button
+						type="button"
 						onClick={() =>
 							navigate(
 								isSettingsActive
@@ -132,7 +120,14 @@ export default function Header() {
 							)
 						}
 						aria-label="Settings"
-					/>
+						className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+							isSettingsActive
+								? "bg-white/10 text-white"
+								: "text-white/50 hover:text-white/80 hover:bg-white/6"
+						}`}
+					>
+						<GearSixIcon size={18} />
+					</button>
 				</Tooltip>
 			</div>
 		</header>

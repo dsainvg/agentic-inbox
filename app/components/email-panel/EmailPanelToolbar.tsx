@@ -68,7 +68,7 @@ export default function EmailPanelToolbar({
 	onDelete,
 }: EmailPanelToolbarProps) {
 	return (
-		<div className="flex items-center gap-1 px-3 py-2 border-b border-kumo-line shrink-0 md:px-4">
+		<div className="flex items-center gap-1 px-3 py-2 border-b border-white/[0.06] shrink-0 h-11 bg-[#0f0f0f]">
 			<Button
 				variant="ghost"
 				shape="square"
@@ -76,7 +76,7 @@ export default function EmailPanelToolbar({
 				icon={<ArrowLeftIcon size={18} />}
 				onClick={onBack}
 				aria-label="Back to list"
-				className="md:hidden shrink-0"
+				className="md:hidden shrink-0 text-white/50 hover:text-white/90"
 			/>
 
 			{isDraftFolder ? (
@@ -145,7 +145,7 @@ export default function EmailPanelToolbar({
 				</>
 			)}
 
-			<div className="h-5 w-px bg-kumo-fill mx-0.5" />
+			<div className="h-4 w-px bg-white/[0.08] mx-0.5" />
 
 			<Tooltip content={email.starred ? "Unstar" : "Star"} side="bottom" asChild>
 				<Button
@@ -240,14 +240,14 @@ function MoveToFolderMenu({ folders, onMove }: { folders: Folder[]; onMove: (id:
 				/>
 			</Tooltip>
 			{open && (
-				<div className="absolute top-full left-0 z-50 mt-1 min-w-[160px] rounded-lg border border-kumo-line bg-kumo-elevated shadow-lg py-1">
-					<div className="px-3 py-1.5 text-xs font-medium text-kumo-subtle">Move to</div>
-					<div className="h-px bg-kumo-line my-1" />
+				<div className="absolute top-full left-0 z-50 mt-1.5 min-w-[180px] rounded-xl border border-white/[0.08] bg-[#161616] shadow-2xl shadow-black/60 py-1.5 overflow-hidden">
+					<div className="px-3 py-2 text-[11px] font-medium text-white/30 uppercase tracking-wider">Move to</div>
+					<div className="h-px bg-white/[0.06] my-1" />
 					{folders.map((f) => (
 						<button
 							key={f.id}
 							type="button"
-							className="w-full text-left px-3 py-1.5 text-sm text-kumo-default hover:bg-kumo-overlay transition-colors"
+							className="w-full text-left px-3 py-2 text-[13px] text-white/80 hover:bg-white/[0.06] transition-colors"
 							onClick={() => { onMove(f.id); setOpen(false); }}
 						>
 							{FOLDER_DISPLAY_NAMES[f.name] || f.name}

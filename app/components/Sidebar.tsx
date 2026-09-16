@@ -66,21 +66,23 @@ function FolderLink({
 				to={to}
 				onClick={onClick}
 				className={({ isActive }) =>
-					`flex items-center gap-3 py-2 px-3 rounded-md text-sm transition-colors ${
+					`flex items-center gap-3 py-2 px-3 rounded-lg text-[13px] transition-colors ${
 						isActive
-							? "bg-kumo-fill font-semibold text-kumo-default"
-							: "text-kumo-strong hover:bg-kumo-tint"
+							? "bg-white/8 font-medium text-white/95"
+							: "text-white/60 hover:bg-white/6 hover:text-white/90"
 					}`
 				}
 			>
 				<span className="shrink-0">{icon}</span>
 				<span className="truncate flex-1">{label}</span>
 				{unreadCount != null && unreadCount > 0 && (
-					<Badge variant="secondary">{unreadCount}</Badge>
+					<span className="bg-white/10 text-white/70 text-[11px] font-medium px-1.5 py-0.5 rounded-full tabular-nums">
+						{unreadCount}
+					</span>
 				)}
 			</NavLink>
 			{actions && (
-				<div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover/folder:flex group-focus-within/folder:flex items-center gap-0.5 bg-kumo-base rounded-md shadow-sm border border-kumo-line px-0.5">
+				<div className="absolute right-1.5 top-1/2 -translate-y-1/2 hidden group-hover/folder:flex group-focus-within/folder:flex items-center gap-0.5 bg-[#1a1a1a] rounded-md shadow-sm border border-white/10 px-0.5">
 					{actions}
 				</div>
 			)}
@@ -196,52 +198,65 @@ export default function Sidebar() {
 		closeSidebar();
 	};
 
+	// Derive avatar initial from display name
+	const avatarInitial = displayName?.charAt(0)?.toUpperCase() || "?";
+
 	return (
-		<aside className="h-full w-64 bg-kumo-recessed flex flex-col shrink-0 border-r border-kumo-line">
-			{/* Back + identity */}
-			<div className="px-4 pt-4 pb-1">
-				<div className="flex items-center justify-between mb-2.5">
+		<aside className="h-full w-60 bg-[#0d0d0d] flex flex-col shrink-0 border-r border-white/[0.05]">
+			{/* Identity / Avatar */}
+			<div className="px-4 pt-5 pb-2">
+				{/* Avatar circle + name row */}
+				<div className="flex items-center gap-3 mb-3">
+					<div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+						<span className="text-[15px] font-semibold text-white/80 select-none">
+							{avatarInitial}
+						</span>
+					</div>
+					<div className="min-w-0">
+						<div className="text-[13px] font-semibold text-white/90 truncate leading-tight">
+							{displayName}
+						</div>
+						<div className="text-[11px] text-white/40 truncate leading-tight mt-0.5">
+							{mailboxId === "all" ? "Combined Inbox" : currentMailbox?.email || mailboxId}
+						</div>
+					</div>
+				</div>
+
+				{/* Back to mailboxes + all mails links */}
+				<div className="flex items-center justify-between">
 					<button
 						type="button"
 						onClick={() => {
 							navigate("/");
 							closeSidebar();
 						}}
-						className="flex items-center gap-1.5 text-kumo-subtle text-sm hover:text-kumo-default transition-colors cursor-pointer bg-transparent border-0 p-0"
+						className="flex items-center gap-1 text-white/40 hover:text-white/70 text-[11px] transition-colors cursor-pointer bg-transparent border-0 p-0"
 					>
-						<CaretLeftIcon size={14} />
+						<CaretLeftIcon size={11} />
 						<span>Mailboxes</span>
 					</button>
 					{mailboxId !== "all" && (
 						<NavLink
 							to="/mailbox/all/emails/all_mail"
 							onClick={handleNavClick}
-							className="text-xs text-kumo-link hover:underline font-medium"
+							className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
 						>
 							All Mails
 						</NavLink>
 					)}
 				</div>
-				<div className="px-1">
-					<div className="text-base font-semibold text-kumo-default truncate">
-						{displayName}
-					</div>
-					<div className="text-sm text-kumo-subtle truncate mt-0.5">
-						{mailboxId === "all" ? "Combined Inbox" : currentMailbox?.email || mailboxId}
-					</div>
-				</div>
 			</div>
 
 			{/* Compose */}
-			<div className="px-3 py-3">
-				<Button
-					variant="primary"
-					icon={<PencilSimpleIcon size={16} />}
+			<div className="mx-3 my-3">
+				<button
+					type="button"
 					onClick={() => startCompose()}
-					className="w-full"
+					className="w-full flex items-center gap-2 justify-center bg-white/8 hover:bg-white/12 border border-white/10 text-white text-sm rounded-lg py-2.5 transition-colors cursor-pointer"
 				>
-					Compose
-				</Button>
+					<PencilSimpleIcon size={15} />
+					<span>Compose</span>
+				</button>
 			</div>
 
 			{/* Navigation */}
@@ -260,8 +275,8 @@ export default function Sidebar() {
 				{/* Custom folders */}
 				{customFolders.length > 0 && (
 					<div className="pt-5">
-						<div className="flex items-center justify-between px-3 mb-1.5">
-							<span className="text-xs uppercase tracking-wider font-semibold text-kumo-subtle">
+						<div className="flex items-center justify-between px-3 mb-1">
+							<span className="text-[10px] uppercase tracking-widest text-white/25">
 								Folders
 							</span>
 							<Tooltip content="New folder" asChild>
@@ -286,7 +301,7 @@ export default function Sidebar() {
 								actions={
 									<>
 										<button
-											className="p-1 rounded hover:bg-kumo-tint text-kumo-subtle hover:text-kumo-default cursor-pointer"
+											className="p-1 rounded hover:bg-white/8 text-white/40 hover:text-white/80 cursor-pointer transition-colors"
 											aria-label={`Rename folder ${folder.name}`}
 											title="Rename folder"
 											onClick={(e) => {
@@ -299,7 +314,7 @@ export default function Sidebar() {
 											<PencilSimpleIcon size={13} />
 										</button>
 										<button
-											className="p-1 rounded hover:bg-kumo-danger-tint text-kumo-subtle hover:text-kumo-danger cursor-pointer"
+											className="p-1 rounded hover:bg-red-500/15 text-white/40 hover:text-red-400 cursor-pointer transition-colors"
 											aria-label={`Delete folder ${folder.name}`}
 											title="Delete folder"
 											onClick={(e) => {
@@ -320,8 +335,8 @@ export default function Sidebar() {
 				{/* Add folder button when no custom folders */}
 				{customFolders.length === 0 && (
 					<div className="pt-5">
-						<div className="flex items-center justify-between px-3 mb-1.5">
-							<span className="text-xs uppercase tracking-wider font-semibold text-kumo-subtle">
+						<div className="flex items-center justify-between px-3 mb-1">
+							<span className="text-[10px] uppercase tracking-widest text-white/25">
 								Folders
 							</span>
 							<Tooltip content="New folder" asChild>
@@ -454,11 +469,10 @@ export default function Sidebar() {
 			</Dialog.Root>
 
 			{/* Logout / Session Actions Footer */}
-			<div className="p-3 border-t border-kumo-line bg-kumo-surface">
-				<Button
-					variant="secondary"
-					size="sm"
-					className="w-full flex items-center justify-center gap-2"
+			<div className="p-3 border-t border-white/[0.05]">
+				<button
+					type="button"
+					className="w-full text-white/50 hover:text-white/80 text-[12px] transition-colors cursor-pointer bg-transparent border-0 py-1.5"
 					onClick={async () => {
 						try {
 							await api.logout();
@@ -470,7 +484,7 @@ export default function Sidebar() {
 					}}
 				>
 					Sign Out
-				</Button>
+				</button>
 			</div>
 		</aside>
 	);

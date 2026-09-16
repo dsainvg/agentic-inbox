@@ -8,56 +8,37 @@ import { formatDetailDate, rewriteInlineImages } from "~/lib/utils";
 import type { Email } from "~/types";
 
 interface SingleMessageViewProps {
-	email: Email;
-	mailboxId?: string;
-	onPreviewImage: (url: string, filename: string) => void;
+  email: Email;
+  mailboxId?: string;
+  onPreviewImage?: (url: string, filename: string) => void;
 }
 
-export default function SingleMessageView({
-	email,
-	mailboxId,
-	onPreviewImage,
-}: SingleMessageViewProps) {
-	return (
-		<div className="flex flex-col h-full">
-			<div className="px-4 py-4 border-b border-kumo-line md:px-6">
-				<div className="flex items-center justify-between gap-3">
-					<div className="flex items-center gap-2.5 min-w-0">
-						<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-xs font-bold text-kumo-default">
-							{(email.sender || "").charAt(0).toUpperCase() || "?"}
-						</div>
-						<div className="min-w-0">
-							<div className="text-sm font-medium text-kumo-default truncate">
-								{email.sender || "Unknown"}
-							</div>
-							<div className="text-xs text-kumo-subtle">To: {email.recipient || "Unknown"}</div>
-						</div>
-					</div>
-					<span className="text-xs text-kumo-subtle shrink-0">
-						{formatDetailDate(email.date)}
-					</span>
-				</div>
-			</div>
-
-			<div className="flex-1 min-h-0">
-				<EmailIframe
-					body={rewriteInlineImages(
-						email.body || "",
-						mailboxId || "",
-						email.id,
-						email.attachments,
-					)}
-				/>
-			</div>
-
-			<EmailAttachmentList
-				mailboxId={mailboxId}
-				emailId={email.id}
-				attachments={email.attachments}
-				onPreviewImage={onPreviewImage}
-				className="px-4 py-3 border-t border-kumo-line shrink-0 md:px-6"
-				showHeading
-			/>
-		</div>
-	);
+export default function SingleMessageView({ email, mailboxId, onPreviewImage }: SingleMessageViewProps) {
+  return (
+    <div className="px-6 py-5 md:px-8">
+      <div className="flex items-start gap-3 mb-6">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-[12px] font-bold text-white/70">
+          {(email.sender || "").charAt(0).toUpperCase() || "?"}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[14px] font-semibold text-white/90 truncate">{email.sender}</span>
+            <span className="text-[12px] text-white/30 shrink-0">{formatDetailDate(email.date)}</span>
+          </div>
+          <div className="text-[12px] text-white/35 mt-0.5">To: {email.recipient}</div>
+        </div>
+      </div>
+      <EmailIframe
+        body={rewriteInlineImages(email.body || "", mailboxId || "", email.id, email.attachments)}
+        autoSize
+      />
+      <EmailAttachmentList
+        mailboxId={mailboxId}
+        emailId={email.id}
+        attachments={email.attachments}
+        onPreviewImage={onPreviewImage}
+        className="mt-5"
+      />
+    </div>
+  );
 }

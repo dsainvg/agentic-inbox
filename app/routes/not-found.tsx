@@ -10,10 +10,10 @@ export default function NotFoundRoute() {
 	const navigate = useNavigate();
 
 	return (
-		<div className="flex items-center justify-center min-h-screen">
+		<div className="flex items-center justify-center min-h-screen bg-[#090909]">
 			<Empty
-				icon={<WarningIcon size={48} className="text-kumo-inactive" />}
-				title="404 -- Page Not Found"
+				icon={<WarningIcon size={48} className="text-white/20" />}
+				title="404 — Page Not Found"
 				description="The page you're looking for doesn't exist."
 				contents={
 					<Button variant="primary" size="sm" onClick={() => navigate("/")}>
