@@ -17,6 +17,12 @@ import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import { ensureDbInitialized } from "./db/init";
 import * as schema from "./db/schema";
+import {
+	cleanupRulesForFolder,
+	retargetRulesForFolderRename,
+	executeAutomations,
+} from "./lib/automations";
+import { AUTOMATION_MATCH_FIELDS, isAutomationAction, parseAutomationActions, type AutomationAction } from "../shared/automations";
 import { generateApiKey, listApiKeys, revokeApiKey, validateApiKey } from "./lib/api-keys";
 import {
 	handleSendEmail,
@@ -581,6 +587,7 @@ app.get("/api/v1/external/messages", async (c) => {
 
 async function handleExternalPostMessage(
 	db: ReturnType<typeof drizzle<typeof schema>>,
+	env: Env,
 	mailboxId: string,
 	body: { name?: string; email?: string; message?: string },
 ) {
@@ -608,19 +615,43 @@ async function handleExternalPostMessage(
 	const sender = name ? `${name} <${email}>` : email;
 	const messageId = crypto.randomUUID();
 
-	await db.insert(schema.emails).values({
-		id: messageId,
+	// Run automation rules (multi-folder filing, flags, auto-replies).
+	let automationFolders: string[] = [];
+	let automationRead = false;
+	let automationStarred = false;
+	try {
+		const automation = await executeAutomations(db, env, mailboxId, {
+			from: email,
+			subject,
+			recipient: mailboxId,
+		});
+		automationFolders = automation.folders;
+		automationRead = automation.markRead;
+		automationStarred = automation.starred;
+	} catch (e) {
+		console.error("Failed to execute automations:", (e as Error).message);
+	}
+
+	const targetFolders =
+		automationFolders.length > 0 ? automationFolders.slice(0, 10) : [Folders.INBOX];
+	const baseEmailRow = {
 		mailbox_id: mailboxId.toLowerCase(),
-		folder_id: Folders.INBOX,
 		subject,
 		sender,
 		recipient: mailboxId.toLowerCase(),
 		date: new Date().toISOString(),
 		body: message,
-		read: 0,
-		starred: 0,
+		read: automationRead ? 1 : 0,
+		starred: automationStarred ? 1 : 0,
 		raw_headers: JSON.stringify({ "Reply-To": email, "From-Name": name }),
-	});
+	};
+	for (let i = 0; i < targetFolders.length; i++) {
+		await db.insert(schema.emails).values({
+			...baseEmailRow,
+			id: i === 0 ? messageId : `${messageId}-c${i}`,
+			folder_id: targetFolders[i],
+		});
+	}
 
 	return {
 		success: true,
@@ -656,7 +687,7 @@ app.post("/api/v1/external/messages", async (c) => {
 	const db = drizzle(c.env.DB, { schema });
 	const body = await c.req.json().catch(() => ({}));
 
-	const res = await handleExternalPostMessage(db, validated.mailboxId, body);
+	const res = await handleExternalPostMessage(db, c.env, validated.mailboxId, body);
 	if ("error" in res) {
 		return c.json({ error: res.error }, res.statusCode as any);
 	}
@@ -669,7 +700,7 @@ app.post("/api/v1/external/mailboxes/:mailboxId/messages", async (c) => {
 	const db = drizzle(c.env.DB, { schema });
 	const body = await c.req.json().catch(() => ({}));
 
-	const res = await handleExternalPostMessage(db, mailboxId, body);
+	const res = await handleExternalPostMessage(db, c.env, mailboxId, body);
 	if ("error" in res) {
 		return c.json({ error: res.error }, res.statusCode as any);
 	}
@@ -1011,6 +1042,9 @@ app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) 
 		.set({ folder_id: name })
 		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, folderId)));
 
+	// Keep automation rules pointing at the renamed folder
+	await retargetRulesForFolderRename(db, mailboxId, folderId, name);
+
 	return c.json({ id: name, name, unreadCount: 0 });
 });
 
@@ -1042,7 +1076,236 @@ app.delete("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContex
 		.set({ folder_id: Folders.ARCHIVE })
 		.where(and(eq(schema.emails.mailbox_id, mailboxId), eq(schema.emails.folder_id, folderId)));
 
+	// Drop automation rules that file into this folder
+	await cleanupRulesForFolder(db, mailboxId, folderId);
+
 	await db.delete(schema.folders).where(eq(schema.folders.id, existing[0].id));
+
+	return c.body(null, 204);
+});
+
+// -- Automations (auto-filing rules, D1) -----------------------------
+
+function serializeAutomation(r: typeof schema.automationRules.$inferSelect) {
+	return {
+		id: r.id,
+		matchField: r.match_field,
+		matchValue: r.match_value,
+		actions: parseAutomationActions(r.actions),
+		enabled: r.enabled === 1,
+		createdAt: r.created_at,
+	};
+}
+
+/** Structural validation of a rule body (folder existence checked separately). */
+function validateAutomationBody(body: {
+	matchField?: unknown;
+	matchValue?: unknown;
+	actions?: unknown;
+}):
+	| { matchField: string; matchValue: string; actions: AutomationAction[] }
+	| { error: string; status: number } {
+	const matchField = typeof body.matchField === "string" ? body.matchField : "";
+	if (!(AUTOMATION_MATCH_FIELDS as readonly string[]).includes(matchField)) {
+		return { error: "matchField must be one of: from, subject, to", status: 400 };
+	}
+
+	const matchValue = typeof body.matchValue === "string" ? body.matchValue.trim() : "";
+	if (!matchValue) return { error: "matchValue is required", status: 400 };
+	if (matchValue.length > 200) {
+		return { error: "matchValue must be 200 characters or fewer", status: 400 };
+	}
+
+	const rawActions = body.actions;
+	if (!Array.isArray(rawActions) || rawActions.length === 0) {
+		return { error: "actions must be a non-empty array", status: 400 };
+	}
+	if (rawActions.length > 20) {
+		return { error: "A rule can have at most 20 actions", status: 400 };
+	}
+
+	for (const a of rawActions) {
+		if (!isAutomationAction(a)) {
+			return { error: "Invalid action entry", status: 400 };
+		}
+		if (a.type === "file" && a.folder.length > 64) {
+			return { error: "File action folder name is too long", status: 400 };
+		}
+		if (a.type === "auto_reply") {
+			const bodyText = a.body.trim();
+			if (!bodyText) return { error: "Auto-reply action requires a reply body", status: 400 };
+			if (bodyText.length > 5000) {
+				return { error: "Auto-reply body must be 5000 characters or fewer", status: 400 };
+			}
+		}
+	}
+
+	return {
+		matchField,
+		matchValue,
+		actions: rawActions as AutomationAction[],
+	};
+}
+
+/** Every folder id referenced by a rule's actions. */
+function collectActionFolders(actions: AutomationAction[]): string[] {
+	const out: string[] = [];
+	for (const a of actions) {
+		if (a.type === "file") out.push(a.folder);
+		if (a.type === "auto_reply") {
+			if (a.onSuccessFolder) out.push(a.onSuccessFolder);
+			if (a.onFailureFolder) out.push(a.onFailureFolder);
+		}
+	}
+	return out;
+}
+
+/** Verify every referenced folder exists for the mailbox. */
+async function allFoldersExist(
+	db: ReturnType<typeof drizzle<typeof schema>>,
+	mailboxId: string,
+	folders: string[],
+): Promise<boolean> {
+	if (folders.length === 0) return true;
+	const rows = await db
+		.select({ name: schema.folders.name })
+		.from(schema.folders)
+		.where(eq(schema.folders.mailbox_id, mailboxId));
+	const known = new Set(rows.map((r) => r.name));
+	return folders.every((f) => known.has(f));
+}
+
+app.get("/api/v1/mailboxes/:mailboxId/automations", async (c: AppContext) => {
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+
+	if (mailboxId === "all") return c.json([]);
+
+	const rows = await db
+		.select()
+		.from(schema.automationRules)
+		.where(eq(schema.automationRules.mailbox_id, mailboxId))
+		.orderBy(asc(schema.automationRules.created_at));
+
+	return c.json(rows.map(serializeAutomation));
+});
+
+app.post("/api/v1/mailboxes/:mailboxId/automations", async (c: AppContext) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	if (mailboxId === "all") {
+		return c.json({ error: "Automations must belong to a specific mailbox" }, 400);
+	}
+
+	const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+	const validated = validateAutomationBody(body);
+	if ("error" in validated) {
+		return c.json({ error: validated.error }, validated.status as any);
+	}
+
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const referencedFolders = collectActionFolders(validated.actions);
+	if (!(await allFoldersExist(db, mailboxId, referencedFolders))) {
+		return c.json({ error: "One or more target folders do not exist for this mailbox" }, 400);
+	}
+
+	const rule = {
+		id: crypto.randomUUID(),
+		mailbox_id: mailboxId,
+		match_field: validated.matchField,
+		match_value: validated.matchValue,
+		actions: JSON.stringify(validated.actions),
+		enabled: 1,
+		created_at: new Date().toISOString(),
+	};
+
+	await db.insert(schema.automationRules).values(rule);
+
+	return c.json(serializeAutomation(rule), 201);
+});
+
+app.put("/api/v1/mailboxes/:mailboxId/automations/:ruleId", async (c: AppContext) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	if (mailboxId === "all") {
+		return c.json({ error: "Automations must belong to a specific mailbox" }, 400);
+	}
+	const ruleId = c.req.param("ruleId")!;
+
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const existing = await db
+		.select()
+		.from(schema.automationRules)
+		.where(and(eq(schema.automationRules.id, ruleId), eq(schema.automationRules.mailbox_id, mailboxId)))
+		.limit(1);
+	if (existing.length === 0) {
+		return c.json({ error: "Automation not found" }, 404);
+	}
+
+	const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+	// Partial updates: the enabled-only toggle is the common UI case.
+	const updateData: Partial<typeof schema.automationRules.$inferInsert> = {};
+
+	if (body.matchField !== undefined || body.matchValue !== undefined || body.actions !== undefined) {
+		const validated = validateAutomationBody({
+			matchField: body.matchField ?? existing[0].match_field,
+			matchValue: body.matchValue ?? existing[0].match_value,
+			actions: body.actions ?? parseAutomationActions(existing[0].actions),
+		});
+		if ("error" in validated) {
+			return c.json({ error: validated.error }, validated.status as any);
+		}
+		const referencedFolders = collectActionFolders(validated.actions);
+		if (!(await allFoldersExist(db, mailboxId, referencedFolders))) {
+			return c.json({ error: "One or more target folders do not exist for this mailbox" }, 400);
+		}
+		updateData.match_field = validated.matchField;
+		updateData.match_value = validated.matchValue;
+		updateData.actions = JSON.stringify(validated.actions);
+	}
+
+	if (body.enabled !== undefined) {
+		updateData.enabled = body.enabled === true ? 1 : 0;
+	}
+
+	await db
+		.update(schema.automationRules)
+		.set(updateData)
+		.where(eq(schema.automationRules.id, ruleId));
+
+	const updated = await db
+		.select()
+		.from(schema.automationRules)
+		.where(eq(schema.automationRules.id, ruleId))
+		.limit(1);
+
+	return c.json(serializeAutomation(updated[0]));
+});
+
+app.delete("/api/v1/mailboxes/:mailboxId/automations/:ruleId", async (c: AppContext) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	if (mailboxId === "all") {
+		return c.json({ error: "Automations must belong to a specific mailbox" }, 400);
+	}
+	const ruleId = c.req.param("ruleId")!;
+
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+
+	const existing = await db
+		.select()
+		.from(schema.automationRules)
+		.where(and(eq(schema.automationRules.id, ruleId), eq(schema.automationRules.mailbox_id, mailboxId)))
+		.limit(1);
+	if (existing.length === 0) {
+		return c.json({ error: "Automation not found" }, 404);
+	}
+
+	await db.delete(schema.automationRules).where(eq(schema.automationRules.id, ruleId));
 
 	return c.body(null, 204);
 });
@@ -1232,10 +1495,48 @@ async function receiveEmail(
 
 		const allRecipients = Array.from(new Set([targetMailboxId, ...parsedRecipients]));
 
-		await db.insert(schema.emails).values({
+		// 3. Run automation rules (multi-folder filing, flags, auto-replies).
+		const subjLower = (parsedEmail.subject || "").toLowerCase();
+		const headerList = (parsedEmail.headers ?? []) as Array<{ key?: string; value?: string }>;
+		const hasAutoHeader = headerList.some((h) => {
+			const k = (h.key || "").toLowerCase();
+			if (k !== "auto-submitted" && k !== "x-autoreply" && k !== "auto-reply") return false;
+			return !/^no$/i.test(h.value || "");
+		});
+		const looksAutoReply = hasAutoHeader || subjLower.startsWith("re:") || subjLower.startsWith("fwd:");
+
+		let automationFolders: string[] = [];
+		let automationRead = false;
+		let automationStarred = false;
+		try {
+			const automation = await executeAutomations(db, env, targetMailboxId, {
+				from: (parsedEmail.from?.address || event.from || "").toLowerCase(),
+				subject: parsedEmail.subject || "(no subject)",
+				recipient: allRecipients.join(", "),
+				threadId,
+				inReplyTo: originalMessageId || undefined,
+				references: emailReferences,
+				isAutoReply: looksAutoReply,
+			});
+			automationFolders = automation.folders;
+			automationRead = automation.markRead;
+			automationStarred = automation.starred;
+			if (automation.matchedRuleId) {
+				console.log(
+					`Automation ${automation.matchedRuleId} filed email ${messageId} into [${automationFolders.join(", ") || "inbox"}] for ${targetMailboxId}`,
+				);
+			}
+		} catch (e) {
+			console.error("Failed to execute automations:", (e as Error).message);
+		}
+
+		// File the email into every resolved folder (first is the primary
+		// copy that keeps the original id; the rest are duplicates).
+		const targetFolders =
+			automationFolders.length > 0 ? automationFolders.slice(0, 10) : [Folders.INBOX];
+		const baseEmailRow = {
 			id: messageId,
 			mailbox_id: targetMailboxId,
-			folder_id: Folders.INBOX,
 			subject: parsedEmail.subject || "(no subject)",
 			sender: (parsedEmail.from?.address || event.from || "").toLowerCase(),
 			recipient: allRecipients.join(", "),
@@ -1251,15 +1552,22 @@ async function receiveEmail(
 					.join(", ") || null,
 			date: new Date().toISOString(),
 			body: parsedEmail.html || parsedEmail.text || "",
-			read: 0,
-			starred: 0,
+			read: automationRead ? 1 : 0,
+			starred: automationStarred ? 1 : 0,
 			in_reply_to: inReplyTo,
 			email_references:
 				emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
 			thread_id: threadId,
 			message_id: originalMessageId,
 			raw_headers: JSON.stringify(parsedEmail.headers),
-		});
+		};
+		for (let i = 0; i < targetFolders.length; i++) {
+			await db.insert(schema.emails).values({
+				...baseEmailRow,
+				id: i === 0 ? messageId : `${messageId}-c${i}`,
+				folder_id: targetFolders[i],
+			});
+		}
 
 		console.log(`Stored email ${messageId} in D1 for mailbox ${targetMailboxId}`);
 

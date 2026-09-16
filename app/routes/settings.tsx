@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/kumo";
+import { Badge, Button, Input, Loader, Select, useKumoToastManager } from "@cloudflare/kumo";
 import {
 	RobotIcon,
 	ArrowCounterClockwiseIcon,
@@ -11,16 +11,94 @@ import {
 	CopyIcon,
 	CheckIcon,
 	CodeIcon,
+	LightningIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
 import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "~/queries/api-keys";
+import { useFolders } from "~/queries/folders";
+import {
+	useAutomations,
+	useCreateAutomation,
+	useDeleteAutomation,
+	useUpdateAutomation,
+} from "~/queries/automations";
+import { Folders as FOLDER_CONSTS, FOLDER_DISPLAY_NAMES, SYSTEM_FOLDER_IDS } from "shared/folders";
+import type { AutomationMatchField } from "~/types";
+import type { AutomationAction } from "shared/automations";
 import api from "~/services/api";
 
 // Placeholder shown in the textarea when no custom prompt is set.
 // The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
 const PROMPT_PLACEHOLDER = `You are an email assistant that helps manage this inbox. You read emails, draft replies, and help organize conversations.\n\nWrite like a real person. Short, direct, flowing prose. Plain text only.\n\n(Leave empty to use the full built-in default prompt)`;
+
+/** "from" -> "From" etc. for rule descriptions. */
+const matchFieldLabel = (f: string) => f.charAt(0).toUpperCase() + f.slice(1);
+
+/** Human-readable description of a rule action. */
+function describeAction(
+	action: AutomationAction,
+	folderDisplayName: (id: string) => string,
+): string {
+	switch (action.type) {
+		case "file":
+			return `File into "${folderDisplayName(action.folder)}"`;
+		case "mark_read":
+			return "Mark as read";
+		case "star":
+			return "Star the email";
+		case "auto_reply": {
+			const parts = ["Auto-reply to the sender"];
+			if (action.onSuccessFolder)
+				parts.push(`on success file into "${folderDisplayName(action.onSuccessFolder)}"`);
+			if (action.onFailureFolder)
+				parts.push(`on failure file into "${folderDisplayName(action.onFailureFolder)}"`);
+			return parts.join(", ");
+		}
+	}
+}
+
+interface FolderTargetSelectProps {
+	value?: string;
+	onChange: (folder: string | undefined) => void;
+	systemFolders: string[];
+	customFolders: { id: string; name: string }[];
+	allowEmpty?: boolean;
+	emptyLabel?: string;
+	ariaLabel: string;
+}
+
+/** Shared folder picker for action targets (system + custom folders). */
+function FolderTargetSelect({
+	value,
+	onChange,
+	systemFolders,
+	customFolders,
+	allowEmpty,
+	emptyLabel,
+	ariaLabel,
+}: FolderTargetSelectProps) {
+	return (
+		<Select
+			aria-label={ariaLabel}
+			value={value ?? ""}
+			onValueChange={(v) => onChange(v || undefined)}
+		>
+			{allowEmpty && <Select.Option value="">{emptyLabel ?? "(don't file)"}</Select.Option>}
+			{systemFolders.map((f) => (
+				<Select.Option key={f} value={f}>
+					{FOLDER_DISPLAY_NAMES[f] || f}
+				</Select.Option>
+			))}
+			{customFolders.map((f) => (
+				<Select.Option key={f.id} value={f.id}>
+					{f.name}
+				</Select.Option>
+			))}
+		</Select>
+	);
+}
 
 export default function SettingsRoute() {
 	const { mailboxId } = useParams<{ mailboxId: string }>();
@@ -47,6 +125,59 @@ export default function SettingsRoute() {
 	const [confirmNewPassword, setConfirmNewPassword] = useState("");
 	const [isChangingPassword, setIsChangingPassword] = useState(false);
 	const [passwordError, setPasswordError] = useState("");
+
+	// Automations state
+	const { data: automations = [], isLoading: isLoadingAutomations } = useAutomations(mailboxId);
+	const createAutomationMutation = useCreateAutomation();
+	const updateAutomationMutation = useUpdateAutomation();
+	const deleteAutomationMutation = useDeleteAutomation();
+	const { data: folders = [] } = useFolders(mailboxId);
+	const [matchField, setMatchField] = useState<AutomationMatchField>("from");
+	const [matchValue, setMatchValue] = useState("");
+	const [draftActions, setDraftActions] = useState<AutomationAction[]>([]);
+
+	// Folder options for the automation target selects
+	const customFolders = folders.filter(
+		(f) => !(SYSTEM_FOLDER_IDS as readonly string[]).includes(f.id),
+	);
+	const systemFolderOptions = [
+		FOLDER_CONSTS.INBOX,
+		FOLDER_CONSTS.SENT,
+		FOLDER_CONSTS.DRAFT,
+		FOLDER_CONSTS.ARCHIVE,
+		FOLDER_CONSTS.TRASH,
+	];
+
+	const folderDisplayName = (id: string) => FOLDER_DISPLAY_NAMES[id] || id;
+
+	const canAddAction = (type: AutomationAction["type"]) => {
+		if (type === "auto_reply") return !draftActions.some((a) => a.type === "auto_reply");
+		return draftActions.length < 20;
+	};
+
+	const addDraftAction = (type: AutomationAction["type"]) => {
+		if (!canAddAction(type)) return;
+		setDraftActions((prev) => {
+			if (type === "file") return [...prev, { type: "file", folder: "archive" }];
+			if (type === "mark_read") return [...prev, { type: "mark_read" }];
+			if (type === "star") return [...prev, { type: "star" }];
+			return [...prev, { type: "auto_reply", body: "" }];
+		});
+	};
+
+	const removeDraftAction = (index: number) => {
+		setDraftActions((prev) => prev.filter((_, i) => i !== index));
+	};
+
+	const updateDraftAction = (index: number, patch: Partial<AutomationAction>) => {
+		setDraftActions((prev) =>
+			prev.map((a, i) => (i === index ? ({ ...a, ...patch } as AutomationAction) : a)),
+		);
+	};
+
+	const autoReplyValid = draftActions.every(
+		(a) => a.type !== "auto_reply" || a.body.trim().length > 0,
+	);
 
 	useEffect(() => {
 		if (mailbox) {
@@ -84,6 +215,45 @@ export default function SettingsRoute() {
 
 	const handleResetPrompt = () => {
 		setAgentPrompt("");
+	};
+
+	const handleCreateAutomation = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!mailboxId || !matchValue.trim() || draftActions.length === 0 || !autoReplyValid) return;
+		try {
+			await createAutomationMutation.mutateAsync({
+				mailboxId,
+				rule: {
+					matchField,
+					matchValue: matchValue.trim(),
+					actions: draftActions,
+				},
+			});
+			setMatchValue("");
+			setDraftActions([]);
+			toastManager.add({ title: "Automation created!" });
+		} catch {
+			toastManager.add({ title: "Failed to create automation", variant: "error" });
+		}
+	};
+
+	const handleToggleAutomation = async (ruleId: string, enabled: boolean) => {
+		if (!mailboxId) return;
+		try {
+			await updateAutomationMutation.mutateAsync({ mailboxId, ruleId, patch: { enabled } });
+		} catch {
+			toastManager.add({ title: "Failed to update automation", variant: "error" });
+		}
+	};
+
+	const handleDeleteAutomation = async (ruleId: string) => {
+		if (!mailboxId) return;
+		try {
+			await deleteAutomationMutation.mutateAsync({ mailboxId, ruleId });
+			toastManager.add({ title: "Automation deleted" });
+		} catch {
+			toastManager.add({ title: "Failed to delete automation", variant: "error" });
+		}
 	};
 
 	const handleCreateKey = async () => {
@@ -363,6 +533,233 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 				</div>
 
 				{/* Save */}
+				{/* Automations */}
+				{mailboxId && mailboxId !== "all" && (
+					<div className="mt-8 border-t border-kumo-line pt-6">
+						<div className="flex items-center gap-2 mb-1">
+							<LightningIcon size={16} className="text-kumo-subtle" />
+							<span className="text-sm font-semibold text-kumo-default">Automations</span>
+							<Badge variant="secondary" className="text-[10px]">Auto-file new emails</Badge>
+						</div>
+						<p className="text-xs text-kumo-subtle mb-4">
+							Rules run on every new email that arrives in this mailbox. The first
+							matching rule wins; later rules are ignored.
+						</p>
+
+						{/* Create rule */}
+						<form
+							onSubmit={handleCreateAutomation}
+							className="mb-5 p-3 rounded-lg border border-kumo-line bg-kumo-surface space-y-3"
+						>
+							<div className="flex flex-wrap items-end gap-2">
+								<div className="flex flex-col gap-1">
+									<span className="text-xs text-kumo-subtle">When</span>
+									<Select
+										aria-label="Match field"
+										value={matchField}
+										onValueChange={(v) => v && setMatchField(v as AutomationMatchField)}
+									>
+										<Select.Option value="from">From</Select.Option>
+										<Select.Option value="subject">Subject</Select.Option>
+										<Select.Option value="to">To</Select.Option>
+									</Select>
+								</div>
+
+								<span className="text-xs text-kumo-subtle pb-2">contains</span>
+
+								<div className="flex flex-col gap-1 min-w-[180px]">
+									<Input
+										aria-label="Match value"
+										size="sm"
+										placeholder="e.g. newsletter"
+										value={matchValue}
+										onChange={(e) => setMatchValue(e.target.value)}
+										required
+										maxLength={200}
+									/>
+								</div>
+							</div>
+
+							<div className="space-y-2">
+								<span className="text-xs text-kumo-subtle block">Then&hellip; (runs in order)</span>
+								{draftActions.map((action, i) => (
+									<div
+										key={`${action.type}-${i}`}
+										className="flex flex-wrap items-center gap-2 p-2 rounded-md border border-kumo-line bg-kumo-base"
+									>
+										<span className="text-[11px] font-mono text-kumo-subtle w-5 text-center">
+											{i + 1}
+										</span>
+
+										{action.type === "file" && (
+											<>
+												<span className="text-xs text-kumo-default">File into</span>
+												<FolderTargetSelect
+													ariaLabel={`Target folder for action ${i + 1}`}
+													value={action.folder}
+													onChange={(folder) =>
+														updateDraftAction(i, { type: "file", folder: folder || "archive" })
+													}
+													systemFolders={systemFolderOptions}
+													customFolders={customFolders}
+												/>
+											</>
+										)}
+
+										{action.type === "mark_read" && (
+											<span className="text-xs text-kumo-default">Mark as read</span>
+										)}
+										{action.type === "star" && (
+											<span className="text-xs text-kumo-default">Star the email</span>
+										)}
+
+										{action.type === "auto_reply" && (
+											<div className="flex-1 min-w-[240px] space-y-2">
+												<div className="text-xs text-kumo-default font-medium">
+													Auto-reply to the sender
+												</div>
+												<textarea
+													aria-label="Auto-reply body"
+													className="w-full min-h-[70px] text-xs p-2 rounded-md border border-kumo-line bg-kumo-base text-kumo-default resize-y"
+													placeholder="Write the automatic reply body…"
+													value={action.body}
+													maxLength={5000}
+													onChange={(e) => updateDraftAction(i, { type: "auto_reply", body: e.target.value })}
+													required
+												/>
+												<div className="flex flex-wrap items-center gap-2 text-xs text-kumo-subtle">
+													<span>Reply succeeded &rarr; file into</span>
+													<FolderTargetSelect
+														ariaLabel="On success folder"
+														allowEmpty
+														emptyLabel="(keep in Inbox)"
+														value={action.onSuccessFolder}
+														onChange={(folder) => updateDraftAction(i, { type: "auto_reply", onSuccessFolder: folder })}
+														systemFolders={systemFolderOptions}
+														customFolders={customFolders}
+													/>
+													<span>failed &rarr; file into</span>
+													<FolderTargetSelect
+														ariaLabel="On failure folder"
+														allowEmpty
+														emptyLabel="(keep in Inbox)"
+														value={action.onFailureFolder}
+														onChange={(folder) => updateDraftAction(i, { type: "auto_reply", onFailureFolder: folder })}
+														systemFolders={systemFolderOptions}
+														customFolders={customFolders}
+													/>
+												</div>
+												<p className="text-[11px] text-kumo-subtle">
+													Sent once per thread per rule. Skipped for auto-replies and
+													mailer daemons to avoid loops. Replies are recorded in Sent.
+												</p>
+											</div>
+										)}
+
+										<Button
+											variant="ghost"
+											shape="square"
+											size="sm"
+											className="ml-auto text-kumo-subtle hover:text-kumo-danger"
+											aria-label={`Remove action ${i + 1}`}
+											title="Remove action"
+											type="button"
+											onClick={() => removeDraftAction(i)}
+										>
+											<TrashIcon size={14} />
+										</Button>
+									</div>
+								))}
+							</div>
+
+							<div className="flex flex-wrap items-center gap-2">
+								<span className="text-xs text-kumo-subtle">Add action:</span>
+								<Button type="button" variant="secondary" size="sm" disabled={!canAddAction("file")} onClick={() => addDraftAction("file")}>
+									📁 File to folder
+								</Button>
+								<Button type="button" variant="secondary" size="sm" disabled={!canAddAction("mark_read")} onClick={() => addDraftAction("mark_read")}>
+									Mark as read
+								</Button>
+								<Button type="button" variant="secondary" size="sm" disabled={!canAddAction("star")} onClick={() => addDraftAction("star")}>
+									Star
+								</Button>
+								<Button type="button" variant="secondary" size="sm" disabled={!canAddAction("auto_reply")} onClick={() => addDraftAction("auto_reply")}>
+									↩ Auto-reply
+								</Button>
+
+								<Button
+									type="submit"
+									variant="primary"
+									size="sm"
+									className="ml-auto"
+									loading={createAutomationMutation.isPending}
+									disabled={!matchValue.trim() || draftActions.length === 0 || !autoReplyValid}
+								>
+									Add Rule
+								</Button>
+							</div>
+						</form>
+
+						{/* Rule list */}
+						{isLoadingAutomations ? (
+							<Loader size="sm" />
+						) : automations.length === 0 ? (
+							<p className="text-xs text-kumo-subtle italic">
+								No automations yet. Add a rule above to automatically file
+								incoming emails into folders.
+							</p>
+						) : (
+							<div className="space-y-2">
+								{automations.map((rule) => (
+									<div
+										key={rule.id}
+										className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-kumo-line bg-kumo-surface ${rule.enabled ? "" : "opacity-60"}`}
+									>
+										<div className="min-w-0 flex-1">
+<div className="text-sm text-kumo-default">
+											When <strong>{matchFieldLabel(rule.matchField)}</strong>{" "}
+											contains <strong>&ldquo;{rule.matchValue}&rdquo;</strong>
+										</div>
+										<ol className="text-xs text-kumo-subtle mt-0.5 space-y-0.5">
+											{rule.actions.map((action, i) => (
+												<li key={i} className="truncate">
+													{i + 1}. {describeAction(action, folderDisplayName)}
+												</li>
+											))}
+										</ol>
+										{!rule.enabled && (
+											<div className="text-[11px] text-kumo-subtle">Disabled</div>
+										)}
+										</div>
+										<div className="flex items-center gap-2 shrink-0">
+											<Button
+												variant={rule.enabled ? "secondary" : "ghost"}
+												size="sm"
+												onClick={() => handleToggleAutomation(rule.id, !rule.enabled)}
+												loading={updateAutomationMutation.isPending}
+											>
+												{rule.enabled ? "Enabled" : "Disabled"}
+											</Button>
+											<Button
+												variant="ghost"
+												shape="square"
+												size="sm"
+												aria-label={`Delete automation ${rule.matchValue}`}
+												title="Delete automation"
+												className="text-kumo-subtle hover:text-kumo-danger"
+												loading={deleteAutomationMutation.isPending}
+												onClick={() => handleDeleteAutomation(rule.id)}
+											>
+												<TrashIcon size={14} />
+											</Button>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+				)}
+
 				{/* Change Password */}
 				<div className="mt-8 border-t border-kumo-line pt-6">
 					<div className="flex items-center gap-2 mb-4">

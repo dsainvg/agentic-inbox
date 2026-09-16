@@ -66,6 +66,20 @@ export interface Folder {
 	unreadCount: number;
 }
 
+import type { AutomationAction } from "shared/automations";
+
+export type { AutomationAction };
+export type AutomationMatchField = "from" | "subject" | "to";
+
+export interface Automation {
+	id: string;
+	matchField: AutomationMatchField;
+	matchValue: string;
+	actions: AutomationAction[];
+	enabled: boolean;
+	createdAt: string;
+}
+
 export interface ApiKeySummary {
 	id: string;
 	keyPreview: string;

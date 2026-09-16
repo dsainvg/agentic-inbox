@@ -4,6 +4,42 @@
 
 let dbInitialized = false;
 
+/**
+ * One-time migration: the automation_rules table was redesigned from
+ * (target_folder, mark_read) columns to a JSON `actions` column before
+ * the feature ever shipped. Drop any legacy table so the new schema
+ * in the batch above can be created.
+ */
+async function migrateAutomationRules(db: D1Database) {
+	try {
+		const legacy = await db
+			.prepare(
+				`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'automation_rules' AND sql NOT LIKE '%actions%'`,
+			)
+			.first();
+		if (legacy) {
+			await db.prepare(`DROP TABLE automation_rules`).run();
+			await db
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS automation_rules (
+						id TEXT PRIMARY KEY,
+						mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+						match_field TEXT NOT NULL,
+						match_value TEXT NOT NULL,
+						actions TEXT NOT NULL DEFAULT '[]',
+						enabled INTEGER NOT NULL DEFAULT 1,
+						created_at TEXT NOT NULL
+					);
+					CREATE INDEX IF NOT EXISTS idx_automation_rules_mailbox ON automation_rules(mailbox_id);`,
+				)
+				.run();
+			console.log("Migrated legacy automation_rules table to actions-based schema");
+		}
+	} catch (e) {
+		console.error("automation_rules migration check failed:", (e as Error).message);
+	}
+}
+
 export async function ensureDbInitialized(db: D1Database) {
 	if (dbInitialized) return;
 	try {
@@ -69,7 +105,23 @@ export async function ensureDbInitialized(db: D1Database) {
 					created_at TEXT NOT NULL
 				);
 			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS automation_rules (
+					id TEXT PRIMARY KEY,
+					mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+					match_field TEXT NOT NULL,
+					match_value TEXT NOT NULL,
+					target_folder TEXT NOT NULL,
+					mark_read INTEGER NOT NULL DEFAULT 0,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					created_at TEXT NOT NULL
+				);
+			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_automation_rules_mailbox ON automation_rules(mailbox_id);
+			`),
 		]);
+		await migrateAutomationRules(db);
 		dbInitialized = true;
 	} catch (e) {
 		console.error("Failed to initialize D1 database schema:", e);
