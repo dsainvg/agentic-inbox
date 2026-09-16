@@ -31,17 +31,32 @@ export type AutoReplyAction = {
 	onFailureFolder?: string;
 };
 
+/**
+ * Send an AI-generated contextual reply using Cloudflare Workers AI free model.
+ * - `prompt`: optional instructions / guidance for how AI should formulate the reply
+ * - `onSuccessFolder`: file the original email here when the reply is sent successfully
+ * - `onFailureFolder`: file the original email here when the reply fails
+ */
+export type AiReplyAction = {
+	type: "ai_reply";
+	prompt?: string;
+	onSuccessFolder?: string;
+	onFailureFolder?: string;
+};
+
 export type AutomationAction =
 	| FileAction
 	| MarkReadAction
 	| StarAction
-	| AutoReplyAction;
+	| AutoReplyAction
+	| AiReplyAction;
 
 export const AUTOMATION_ACTION_TYPES = [
 	"file",
 	"mark_read",
 	"star",
 	"auto_reply",
+	"ai_reply",
 ] as const;
 
 export type AutomationActionType = (typeof AUTOMATION_ACTION_TYPES)[number];
@@ -58,6 +73,8 @@ export function isAutomationAction(v: unknown): v is AutomationAction {
 			return true;
 		case "auto_reply":
 			return typeof a.body === "string";
+		case "ai_reply":
+			return a.prompt === undefined || typeof a.prompt === "string";
 		default:
 			return false;
 	}

@@ -13,6 +13,8 @@ import { and, asc, eq, like } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { Env } from "../types";
 import { sendSmtpEmail } from "./smtp";
+import { isPromptInjection } from "./ai";
+import { stripHtmlToText } from "./email-helpers";
 import {
 	parseAutomationActions,
 	type AutomationAction,
@@ -34,6 +36,8 @@ export type AutomationEmailContext = {
 	references?: string[];
 	/** True when the inbound email looks like an auto-response (no auto-reply back). */
 	isAutoReply?: boolean;
+	/** Plain text or HTML body of the email. */
+	body?: string;
 };
 
 export type AutomationOutcome = {
@@ -223,6 +227,175 @@ async function sendAutoReply(
 }
 
 /**
+ * Generate an AI-powered contextual auto-reply using Cloudflare Workers AI
+ * free model (@cf/meta/llama-3.1-8b-instruct) and deliver it over SMTP,
+ * recording the outcome in the Sent folder.
+ */
+async function sendAiReply(
+	db: Db,
+	env: Env,
+	mailboxId: string,
+	rule: Rule,
+	action: Extract<AutomationAction, { type: "ai_reply" }>,
+	email: AutomationEmailContext,
+): Promise<AutoReplyStatus> {
+	// ── Loop protection (intentional skip, not a failure) ──────────
+	if (!email.from) return "skipped";
+	if (email.from === mailboxId) return "skipped"; // never reply to ourselves
+	if (email.isAutoReply || isAutoReplySender(email.from)) return "skipped";
+
+	// Only one auto-reply per rule per thread, ever.
+	if (email.threadId) {
+		const already = await db
+			.select({ id: schema.emails.id })
+			.from(schema.emails)
+			.where(
+				and(
+					eq(schema.emails.mailbox_id, mailboxId),
+					eq(schema.emails.folder_id, "sent"),
+					eq(schema.emails.thread_id, email.threadId),
+					like(schema.emails.raw_headers, `%"autoReplyRuleId":"${rule.id}"%`),
+				),
+			)
+			.limit(1);
+		if (already.length > 0) return "skipped";
+	}
+
+	// Security check: Prompt injection scan on incoming email body
+	if (email.body && env.AI) {
+		const injection = await isPromptInjection(env.AI, email.body);
+		if (injection) {
+			console.warn(`Automation ${rule.id} AI reply blocked: prompt injection detected`);
+			return "skipped";
+		}
+	}
+
+	// Build From header from mailbox settings (same rules as manual replies).
+	let fromName = mailboxId;
+	try {
+		const rows = await db
+			.select()
+			.from(schema.mailboxes)
+			.where(eq(schema.mailboxes.id, mailboxId))
+			.limit(1);
+		if (rows[0]?.settings) {
+			const settings = JSON.parse(rows[0].settings) as { fromName?: string };
+			if (settings.fromName) fromName = settings.fromName;
+		}
+	} catch {}
+
+	const subject = email.subject.toLowerCase().startsWith("re:")
+		? email.subject
+		: `Re: ${email.subject}`;
+
+	// Generate the AI reply text using Cloudflare Workers AI free model
+	let generatedReply = "";
+	if (env.AI) {
+		try {
+			const plainBody = email.body ? stripHtmlToText(email.body).trim() : "";
+			const customGuidance = action.prompt?.trim()
+				? `\nAdditional user instructions: ${action.prompt.trim()}`
+				: "";
+
+			const systemPrompt = `You are an AI email assistant responding on behalf of ${fromName || mailboxId}.
+Compose a concise, polite, and professional email reply to the message below.${customGuidance}
+
+Strict requirements:
+- Write ONLY the email reply text. Do NOT output commentary, greetings to the operator, or placeholders.
+- Do NOT output email headers (e.g. Subject:, To:, From:).
+- Plain text only. No markdown formatting (no bold **, no headers #, no bullet stars).
+- Directly address the sender and their email content.`;
+
+			const response = (await env.AI.run(
+				// @ts-expect-error — Workers AI free model identifier
+				"@cf/meta/llama-3.1-8b-instruct",
+				{
+					messages: [
+						{ role: "system", content: systemPrompt },
+						{
+							role: "user",
+							content: `From: ${email.from}\nSubject: ${email.subject}\n\nEmail body:\n${plainBody || "(No message body)"}`,
+						},
+					],
+					max_tokens: 1024,
+					temperature: 0.3,
+				},
+			)) as { response?: string };
+
+			generatedReply = (response?.response || "").trim();
+			// Remove any accidental leading "Subject: ..." line
+			generatedReply = generatedReply.replace(/^subject:\s*.*?\n+/i, "").trim();
+		} catch (e) {
+			console.error(`Automation ${rule.id} AI generation failed:`, (e as Error).message);
+		}
+	}
+
+	if (!generatedReply) {
+		console.warn(`Automation ${rule.id} AI reply skipped: no text generated or AI unavailable`);
+		return "failed";
+	}
+
+	const headers: Record<string, string> = {
+		"Auto-Submitted": "auto-replied", // RFC 3834: receivers must not auto-reply back
+		"X-Auto-Response-Suppress": "All",
+		"X-Auto-Rule": rule.id,
+		"X-AI-Generated": "true",
+	};
+	if (email.inReplyTo) headers["In-Reply-To"] = `<${email.inReplyTo}>`;
+	const refs = [...(email.references ?? [])];
+	if (email.inReplyTo && !refs.includes(email.inReplyTo)) refs.push(email.inReplyTo);
+	if (refs.length > 0) headers["References"] = refs.map((r) => `<${r}>`).join(" ");
+
+	const replyId = crypto.randomUUID();
+	let status: AutoReplyStatus = "failed";
+	let smtpMessageId: string | undefined;
+
+	if (env.SMTP_USER && env.SMTP_PASS) {
+		try {
+			const res = await sendSmtpEmail({
+				host: env.SMTP_HOST,
+				port: env.SMTP_PORT,
+				user: env.SMTP_USER,
+				pass: env.SMTP_PASS,
+				from: `${fromName} <${mailboxId}>`,
+				to: email.from,
+				replyTo: mailboxId,
+				subject,
+				text: generatedReply,
+				headers,
+			});
+			smtpMessageId = res.messageId;
+			status = "sent";
+			console.log(`Automation ${rule.id} AI replied to ${email.from} (${res.messageId})`);
+		} catch (err) {
+			console.error(`Automation ${rule.id} AI reply failed:`, (err as Error).message);
+		}
+	} else {
+		console.warn(`Automation ${rule.id} AI reply skipped: SMTP not configured`);
+	}
+
+	// Record the reply in Sent for transparency
+	await db.insert(schema.emails).values({
+		id: replyId,
+		mailbox_id: mailboxId,
+		folder_id: "sent",
+		subject,
+		sender: `${fromName} <${mailboxId}>`,
+		recipient: email.from,
+		date: new Date().toISOString(),
+		body: generatedReply,
+		read: 1,
+		starred: 0,
+		in_reply_to: email.inReplyTo || null,
+		thread_id: email.threadId || replyId,
+		message_id: smtpMessageId || replyId,
+		raw_headers: JSON.stringify({ autoReplyRuleId: rule.id, aiGenerated: true }),
+	});
+
+	return status;
+}
+
+/**
  * Run the matched rule's action pipeline for an inbound email.
  * Performs any auto-reply (SMTP + Sent record) and resolves the final
  * folder set + flags. Never throws into the ingestion path.
@@ -287,8 +460,19 @@ export async function executeAutomations(
 					result = "failed";
 				}
 				// Success/failure branching determines an additional folder.
-				// ("skipped" — loop protection — deliberately does not branch,
-				// so bot mail doesn't get dumped into the failure folder.)
+				if (result === "sent") addFolder(action.onSuccessFolder);
+				else if (result === "failed") addFolder(action.onFailureFolder);
+				break;
+			}
+			case "ai_reply": {
+				let result: AutoReplyStatus = "failed";
+				try {
+					result = await sendAiReply(db, env, mailboxId, rule, action, email);
+				} catch (e) {
+					console.error(`Automation ${rule.id} AI reply error:`, (e as Error).message);
+					result = "failed";
+				}
+				// Success/failure branching determines an additional folder.
 				if (result === "sent") addFolder(action.onSuccessFolder);
 				else if (result === "failed") addFolder(action.onFailureFolder);
 				break;
@@ -320,7 +504,7 @@ export async function cleanupRulesForFolder(
 		const cleaned = actions
 			.map((a) => {
 				if (a.type === "file" && a.folder === folderName) return null;
-				if (a.type === "auto_reply") {
+				if (a.type === "auto_reply" || a.type === "ai_reply") {
 					const next = { ...a };
 					if (next.onSuccessFolder === folderName) delete next.onSuccessFolder;
 					if (next.onFailureFolder === folderName) delete next.onFailureFolder;
@@ -361,7 +545,7 @@ export async function retargetRulesForFolderRename(
 
 		const retargeted = actions.map((a) => {
 			if (a.type === "file" && a.folder === oldName) return { ...a, folder: newName };
-			if (a.type === "auto_reply") {
+			if (a.type === "auto_reply" || a.type === "ai_reply") {
 				const next = { ...a };
 				if (next.onSuccessFolder === oldName) next.onSuccessFolder = newName;
 				if (next.onFailureFolder === oldName) next.onFailureFolder = newName;
@@ -379,7 +563,7 @@ export async function retargetRulesForFolderRename(
 
 function actionReferencesFolder(action: AutomationAction, folderName: string): boolean {
 	if (action.type === "file") return action.folder === folderName;
-	if (action.type === "auto_reply") {
+	if (action.type === "auto_reply" || action.type === "ai_reply") {
 		return action.onSuccessFolder === folderName || action.onFailureFolder === folderName;
 	}
 	return false;

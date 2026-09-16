@@ -56,6 +56,18 @@ function describeAction(
 				parts.push(`on failure file into "${folderDisplayName(action.onFailureFolder)}"`);
 			return parts.join(", ");
 		}
+		case "ai_reply": {
+			const parts = ["Reply with AI"];
+			if (action.prompt?.trim())
+				parts.push(`instruction: "${action.prompt.trim()}"`);
+			if (action.onSuccessFolder)
+				parts.push(`on success file into "${folderDisplayName(action.onSuccessFolder)}"`);
+			if (action.onFailureFolder)
+				parts.push(`on failure file into "${folderDisplayName(action.onFailureFolder)}"`);
+			return parts.join(", ");
+		}
+		default:
+			return "Action";
 	}
 }
 
@@ -151,7 +163,9 @@ export default function SettingsRoute() {
 	const folderDisplayName = (id: string) => FOLDER_DISPLAY_NAMES[id] || id;
 
 	const canAddAction = (type: AutomationAction["type"]) => {
-		if (type === "auto_reply") return !draftActions.some((a) => a.type === "auto_reply");
+		if (type === "auto_reply" || type === "ai_reply") {
+			return !draftActions.some((a) => a.type === "auto_reply" || a.type === "ai_reply");
+		}
 		return draftActions.length < 20;
 	};
 
@@ -161,6 +175,7 @@ export default function SettingsRoute() {
 			if (type === "file") return [...prev, { type: "file", folder: "archive" }];
 			if (type === "mark_read") return [...prev, { type: "mark_read" }];
 			if (type === "star") return [...prev, { type: "star" }];
+			if (type === "ai_reply") return [...prev, { type: "ai_reply", prompt: "" }];
 			return [...prev, { type: "auto_reply", body: "" }];
 		});
 	};
@@ -656,6 +671,52 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 											</div>
 										)}
 
+										{action.type === "ai_reply" && (
+											<div className="flex-1 min-w-[240px] space-y-2">
+												<div className="flex items-center gap-2">
+													<span className="text-xs text-kumo-default font-medium">
+														Reply with AI
+													</span>
+													<Badge variant="secondary" size="sm">
+														Cloudflare Llama 3.1 8B (Free)
+													</Badge>
+												</div>
+												<textarea
+													aria-label="AI reply guidance instructions"
+													className="w-full min-h-[70px] text-xs p-2 rounded-md border border-kumo-line bg-kumo-base text-kumo-default resize-y"
+													placeholder="Optional custom instructions (e.g. 'Acknowledge receipt and mention support hours are 9 AM - 5 PM UTC'). Leave empty for general contextual reply…"
+													value={action.prompt || ""}
+													maxLength={1000}
+													onChange={(e) => updateDraftAction(i, { type: "ai_reply", prompt: e.target.value })}
+												/>
+												<div className="flex flex-wrap items-center gap-2 text-xs text-kumo-subtle">
+													<span>Reply succeeded &rarr; file into</span>
+													<FolderTargetSelect
+														ariaLabel="On success folder"
+														allowEmpty
+														emptyLabel="(keep in Inbox)"
+														value={action.onSuccessFolder}
+														onChange={(folder) => updateDraftAction(i, { type: "ai_reply", onSuccessFolder: folder })}
+														systemFolders={systemFolderOptions}
+														customFolders={customFolders}
+													/>
+													<span>failed &rarr; file into</span>
+													<FolderTargetSelect
+														ariaLabel="On failure folder"
+														allowEmpty
+														emptyLabel="(keep in Inbox)"
+														value={action.onFailureFolder}
+														onChange={(folder) => updateDraftAction(i, { type: "ai_reply", onFailureFolder: folder })}
+														systemFolders={systemFolderOptions}
+														customFolders={customFolders}
+													/>
+												</div>
+												<p className="text-[11px] text-kumo-subtle">
+													Contextual AI reply generated via Cloudflare Workers AI. Sent once per thread per rule with anti-loop protection.
+												</p>
+											</div>
+										)}
+
 										<Button
 											variant="ghost"
 											shape="square"
@@ -685,6 +746,9 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 								</Button>
 								<Button type="button" variant="secondary" size="sm" disabled={!canAddAction("auto_reply")} onClick={() => addDraftAction("auto_reply")}>
 									↩ Auto-reply
+								</Button>
+								<Button type="button" variant="secondary" size="sm" disabled={!canAddAction("ai_reply")} onClick={() => addDraftAction("ai_reply")}>
+									✨ Reply with AI
 								</Button>
 
 								<Button

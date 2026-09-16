@@ -16,7 +16,7 @@ import {
 	PaperPlaneTiltIcon,
 	PencilSimpleIcon,
 	StarIcon,
-	TrashIcon,
+	SparkleIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import type { Folder, Email } from "~/types";
@@ -28,6 +28,9 @@ interface EmailPanelToolbarProps {
 	isSending: boolean;
 	moveToFolders: Folder[];
 	lastReceivedMessage?: Email;
+	isSummarizing?: boolean;
+	isSummaryActive?: boolean;
+	onSummarize?: () => void;
 	onBack: () => void;
 	onSendDraft: () => void;
 	onEditDraft: () => void;
@@ -47,6 +50,9 @@ export default function EmailPanelToolbar({
 	isDraftFolder,
 	isSending,
 	moveToFolders,
+	isSummarizing,
+	isSummaryActive,
+	onSummarize,
 	onBack,
 	onSendDraft,
 	onEditDraft,
@@ -121,6 +127,17 @@ export default function EmailPanelToolbar({
 							icon={<ArrowBendUpRightIcon size={18} />}
 							onClick={onForward}
 							aria-label="Forward"
+						/>
+					</Tooltip>
+					<Tooltip content={isSummaryActive ? "Hide AI Summary" : "Summarize with AI"} side="bottom" asChild>
+						<Button
+							variant={isSummaryActive ? "secondary" : "ghost"}
+							shape="square"
+							size="sm"
+							icon={<SparkleIcon size={18} weight={isSummaryActive ? "fill" : "regular"} className="text-amber-500" />}
+							onClick={onSummarize}
+							loading={isSummarizing}
+							aria-label="Summarize with AI"
 						/>
 					</Tooltip>
 				</>

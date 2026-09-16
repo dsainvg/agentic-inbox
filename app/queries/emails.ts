@@ -277,3 +277,17 @@ export function useForwardEmail() {
 		onSuccess: (_data, { mailboxId }) => invalidate(mailboxId),
 	});
 }
+
+export function useSummarizeEmail() {
+	return useMutation({
+		mutationFn: ({
+			mailboxId,
+			emailId,
+			thread,
+		}: {
+			mailboxId: string;
+			emailId: string;
+			thread?: boolean;
+		}) => api.summarizeEmail(mailboxId, emailId, thread),
+	});
+}

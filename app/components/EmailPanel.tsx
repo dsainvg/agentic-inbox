@@ -9,11 +9,12 @@ import { Folders } from "shared/folders";
 import EmailPanelDialogs from "~/components/email-panel/EmailPanelDialogs";
 import EmailPanelHeader from "~/components/email-panel/EmailPanelHeader";
 import EmailPanelToolbar from "~/components/email-panel/EmailPanelToolbar";
+import EmailSummaryCard from "~/components/EmailSummaryCard";
 import SingleMessageView from "~/components/email-panel/SingleMessageView";
 import ThreadMessage from "~/components/email-panel/ThreadMessage";
 import { splitEmailList, toEmailListValue } from "~/lib/utils";
 import api from "~/services/api";
-import { useDeleteEmail, useEmail, useMoveEmail, useReplyToEmail, useSendEmail, useThreadReplies, useUpdateEmail } from "~/queries/emails";
+import { useDeleteEmail, useEmail, useMoveEmail, useReplyToEmail, useSendEmail, useSummarizeEmail, useThreadReplies, useUpdateEmail } from "~/queries/emails";
 import { useFolders } from "~/queries/folders";
 import { useMailbox } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
@@ -40,6 +41,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const moveEmailMut = useMoveEmail();
 	const sendEmailMut = useSendEmail();
 	const replyMut = useReplyToEmail();
+	const summarizeMut = useSummarizeEmail();
 	const { data: folders = [] } = useFolders(mailboxId) as { data?: Folder[] };
 	const { data: currentMailbox } = useMailbox(mailboxId) as {
 		data?: Mailbox;
@@ -50,6 +52,10 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const [sourceViewEmail, setSourceViewEmail] = useState<Email | null>(null);
 	const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
 	const [previewImage, setPreviewImage] = useState<{ url: string; filename: string } | null>(null);
+	const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+	const [summaryContent, setSummaryContent] = useState<string | null>(null);
+	const [summaryError, setSummaryError] = useState<string | null>(null);
+	const [summarizeThread, setSummarizeThread] = useState(false);
 	const isDraftFolder = folder === Folders.DRAFT;
 
 	const threadReplies = useMemo(() => {
@@ -86,6 +92,48 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const moveToFolders = useMemo(() => { const cur = folder || email?.folder_id; return folders.filter((f) => f.id !== cur); }, [folders, folder, email?.folder_id]);
 
 	if (!email) return <EmailPanelSkeleton />;
+
+	// Reset summary when selected email changes
+	useEffect(() => {
+		setIsSummaryOpen(false);
+		setSummaryContent(null);
+		setSummaryError(null);
+	}, [currentEmailId]);
+
+	const fetchSummary = (forThread: boolean) => {
+		if (!mailboxId || !email) return;
+		setIsSummaryOpen(true);
+		setSummaryError(null);
+		summarizeMut.mutate(
+			{ mailboxId, emailId: email.id, thread: forThread },
+			{
+				onSuccess: (data) => {
+					setSummaryContent(data.summary);
+				},
+				onError: (err) => {
+					setSummaryError(
+						err instanceof Error ? err.message : "Failed to generate AI summary.",
+					);
+				},
+			},
+		);
+	};
+
+	const handleToggleSummary = () => {
+		if (isSummaryOpen) {
+			setIsSummaryOpen(false);
+		} else {
+			setIsSummaryOpen(true);
+			if (!summaryContent && !summarizeMut.isPending) {
+				fetchSummary(summarizeThread);
+			}
+		}
+	};
+
+	const handleToggleThreadSummary = (newThreadMode: boolean) => {
+		setSummarizeThread(newThreadMode);
+		fetchSummary(newThreadMode);
+	};
 
 	const toggleStar = () => { if (mailboxId) updateEmail.mutate({ mailboxId, id: email.id, data: { starred: !email.starred } }); };
 	const handleMove = (folderId: string) => { if (mailboxId) { moveEmailMut.mutate({ mailboxId, id: email.id, folderId }); closePanel(); } };
@@ -147,6 +195,9 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 				isDraftFolder={isDraftFolder}
 				isSending={isSending}
 				moveToFolders={moveToFolders}
+				isSummarizing={summarizeMut.isPending}
+				isSummaryActive={isSummaryOpen}
+				onSummarize={handleToggleSummary}
 				onBack={closePanel}
 				onSendDraft={() => handleSendDraft()}
 				onEditDraft={() => handleEditDraft()}
@@ -180,6 +231,19 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 				messageCount={allMessages.length}
 				showThreadCount={hasThread}
 			/>
+
+			{isSummaryOpen && (
+				<EmailSummaryCard
+					summary={summaryContent}
+					isLoading={summarizeMut.isPending}
+					error={summaryError}
+					isThreadSummarized={summarizeThread}
+					hasThread={hasThread}
+					onToggleThreadSummary={handleToggleThreadSummary}
+					onRegenerate={() => fetchSummary(summarizeThread)}
+					onClose={() => setIsSummaryOpen(false)}
+				/>
+			)}
 
 			<div className="flex-1 overflow-y-auto">
 				{hasThread ? (

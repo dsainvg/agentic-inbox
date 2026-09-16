@@ -32,6 +32,7 @@ import {
 	handleGetThread,
 	handleMarkThreadRead,
 } from "./routes/reply-forward";
+import { stripHtmlToText } from "./lib/email-helpers";
 
 
 
@@ -624,6 +625,7 @@ async function handleExternalPostMessage(
 			from: email,
 			subject,
 			recipient: mailboxId,
+			body: message,
 		});
 		automationFolders = automation.folders;
 		automationRead = automation.markRead;
@@ -812,6 +814,118 @@ app.get("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 		starred: Boolean(email.starred),
 		attachments: [],
 	});
+});
+
+app.post("/api/v1/mailboxes/:mailboxId/emails/:id/summarize", async (c: AppContext) => {
+	await ensureDbInitialized(c.env.DB);
+	const db = drizzle(c.env.DB, { schema });
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	const emailId = c.req.param("id")!;
+
+	if (!c.env.AI) {
+		return c.json({ error: "Cloudflare Workers AI is not configured" }, 500);
+	}
+
+	let bodyParams: { thread?: boolean } = {};
+	try {
+		bodyParams = await c.req.json();
+	} catch {}
+
+	const wantThread = bodyParams.thread ?? (c.req.query("thread") === "true");
+
+	const matchCondition =
+		mailboxId === "all"
+			? eq(schema.emails.id, emailId)
+			: and(
+					eq(schema.emails.id, emailId),
+					eq(schema.emails.mailbox_id, mailboxId),
+				);
+
+	const rows = await db
+		.select()
+		.from(schema.emails)
+		.where(matchCondition)
+		.limit(1);
+
+	if (rows.length === 0) return c.json({ error: "Email not found" }, 404);
+
+	const email = rows[0];
+	let contentToSummarize = "";
+	let isThread = false;
+
+	if (wantThread && email.thread_id) {
+		const threadRows = await db
+			.select()
+			.from(schema.emails)
+			.where(
+				mailboxId === "all"
+					? eq(schema.emails.thread_id, email.thread_id)
+					: and(
+							eq(schema.emails.thread_id, email.thread_id),
+							eq(schema.emails.mailbox_id, mailboxId),
+						),
+			)
+			.orderBy(asc(schema.emails.date));
+
+		if (threadRows.length > 1) {
+			isThread = true;
+			contentToSummarize = threadRows
+				.map((m) => {
+					const text = m.body ? stripHtmlToText(m.body).trim() : "";
+					return `[${m.date || "Unknown Date"}] From: ${m.sender} To: ${m.recipient}\n${text}`;
+				})
+				.join("\n\n---\n\n");
+		}
+	}
+
+	if (!contentToSummarize) {
+		contentToSummarize = email.body ? stripHtmlToText(email.body).trim() : "";
+	}
+
+	if (!contentToSummarize) {
+		return c.json({
+			summary: "This email contains no readable text content to summarize.",
+			model: "@cf/meta/llama-3.1-8b-instruct",
+			isThread,
+		});
+	}
+
+	const systemPrompt = `You are an expert AI email assistant.
+Provide a clear, high-quality, concise executive summary of the following email${isThread ? " thread" : ""}.
+Format using clean Markdown:
+- **TL;DR**: 1-2 sentences capturing the essence.
+- **Key Points**: 2-4 concise bullet points covering critical details, decisions, or context.
+- **Action Items**: Any requests, questions asked, or next steps (or state "None" if purely informational).
+
+Keep it objective, skimmable, and directly based on the provided email text.`;
+
+	try {
+		const response = (await c.env.AI.run(
+			// @ts-expect-error — Cloudflare free model
+			"@cf/meta/llama-3.1-8b-instruct",
+			{
+				messages: [
+					{ role: "system", content: systemPrompt },
+					{
+						role: "user",
+						content: `Subject: ${email.subject || "(no subject)"}\nFrom: ${email.sender}\nTo: ${email.recipient}\n\nEmail Content:\n${contentToSummarize}`,
+					},
+				],
+				max_tokens: 600,
+				temperature: 0.2,
+			},
+		)) as { response?: string };
+
+		const summary = response?.response?.trim() || "No summary could be generated.";
+		return c.json({
+			summary,
+			model: "@cf/meta/llama-3.1-8b-instruct",
+			isThread,
+		});
+	} catch (err) {
+		console.error("AI Summarize error:", (err as Error).message);
+		return c.json({ error: (err as Error).message || "Failed to generate AI summary" }, 500);
+	}
 });
 
 app.put("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
@@ -1517,6 +1631,7 @@ async function receiveEmail(
 				inReplyTo: originalMessageId || undefined,
 				references: emailReferences,
 				isAutoReply: looksAutoReply,
+				body: parsedEmail.text || parsedEmail.html || "",
 			});
 			automationFolders = automation.folders;
 			automationRead = automation.markRead;

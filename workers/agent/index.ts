@@ -63,9 +63,9 @@ Write like a real person. Short, direct, flowing prose. Get to the point. Plain 
 
 **Agent Behavior Rules (CRITICAL):**
 - NEVER output meta-commentary about what you are doing (e.g. do not say "I am drafting a reply to Alex", "I checked the thread", etc).
-- When a new email arrives, your ONLY job is to call the \`draft_reply\` tool.
-- DO NOT summarize the email. DO NOT explain your actions.
-- Output NOTHING except the tool call. If you must output text, it should ONLY be the literal draft text itself if tools fail.
+- When a new email arrives automatically, your ONLY job is to call the \`draft_reply\` tool.
+- During background auto-drafting, DO NOT summarize the email. However, when the user directly asks you in chat to summarize an email or thread, provide a clear, concise summary.
+- Output NOTHING except the tool call during background triage. If you must output text, it should ONLY be the literal draft text itself if tools fail.
 - Before drafting ANY reply, carefully read the full thread history.
 - NEVER repeat information that was already shared in a prior message in the thread.
 - Your reply should only contain NEW information or directly respond to what the person just said. Move the conversation forward, don't rehash it.
@@ -264,6 +264,65 @@ function createEmailTools(env: Env, mailboxId: string) {
 			}),
 			execute: async ({ draftId }): Promise<unknown> => {
 				return toolDiscardDraft(env, mailboxId, draftId);
+			},
+		}),
+
+		summarize_email: defineTool({
+			description:
+				"Summarize an email or full thread using AI. Call this when the user in chat asks to summarize an email or thread.",
+			parameters: z.object({
+				emailId: z.string().describe("The email ID to summarize"),
+				includeThread: z
+					.boolean()
+					.default(false)
+					.describe("Whether to summarize the whole conversation thread"),
+			}),
+			execute: async ({ emailId, includeThread }): Promise<unknown> => {
+				const stub = getMailboxStub(env, mailboxId);
+				const email = (await stub.getEmail(emailId)) as EmailFull | null;
+				if (!email) return { error: "Email not found" };
+
+				let content = email.body ? stripHtmlToText(email.body).trim() : "";
+				if (includeThread && email.thread_id) {
+					const threadEmails = (await stub.getEmails({ thread_id: email.thread_id })) as EmailMetadata[];
+					if (threadEmails.length > 1) {
+						const fullThread = await Promise.all(
+							threadEmails.map(async (e) => {
+								const full = (await stub.getEmail(e.id)) as EmailFull | null;
+								const text = full?.body ? stripHtmlToText(full.body).trim() : "";
+								return `[${e.date}] From ${e.sender}: ${text}`;
+							}),
+						);
+						content = fullThread.join("\n\n---\n\n");
+					}
+				}
+
+				if (!content) return { error: "No text content to summarize" };
+
+				try {
+					const res = (await env.AI.run(
+						// @ts-expect-error - Workers AI model
+						"@cf/meta/llama-3.1-8b-instruct",
+						{
+							messages: [
+								{
+									role: "system",
+									content:
+										"You are an executive assistant. Provide a concise, clear summary of the email with TL;DR, key points, and action items if any.",
+								},
+								{
+									role: "user",
+									content: `Subject: ${email.subject}\nFrom: ${email.sender}\n\nContent:\n${content}`,
+								},
+							],
+							max_tokens: 512,
+							temperature: 0.2,
+						},
+					)) as { response?: string };
+					return { summary: res?.response?.trim() || "No summary available" };
+				} catch (e) {
+					return { error: (e as Error).message };
+				}
 			},
 		}),
 	};

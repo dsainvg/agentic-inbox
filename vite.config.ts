@@ -8,6 +8,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
+import path from "node:path";
+
 const DEPS_TO_OPTIMIZE = [
   "react",
   "react-dom",
@@ -41,6 +43,9 @@ export default defineConfig({
     tsconfigPaths(),
   ],
   resolve: {
+    alias: {
+      "shared": path.resolve(__dirname, "./shared"),
+    },
     // Force Vite to deduplicate react packages to prevent "useContext of null" runtime error
     dedupe: ["react", "react-dom"],
   },

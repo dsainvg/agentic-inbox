@@ -158,6 +158,11 @@ const api = {
 	) => post<{ draft_id: string }>(`/api/v1/mailboxes/${mailboxId}/drafts`, draft),
 	replyToEmail: (mailboxId: string, emailId: string, email: unknown) =>
 		post<void>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/reply`, email),
+	summarizeEmail: (mailboxId: string, emailId: string, thread?: boolean) =>
+		post<{ summary: string; model: string; isThread?: boolean }>(
+			`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/summarize`,
+			{ thread },
+		),
 	forwardEmail: (mailboxId: string, emailId: string, email: unknown) =>
 		post<void>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/forward`, email),
 
