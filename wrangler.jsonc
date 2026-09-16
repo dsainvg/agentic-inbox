@@ -9,9 +9,11 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+  // ...
 	"vars": {
 		"DOMAINS": "dsainvg.dpdns.org, dsainvg.me, durgasai.dpdns.org, nervi.dpdns.org, rupya.dpdns.org, timio.dpdns.org"
 	},
+  // ...
 	"ai": {
 		"binding": "AI"
 	},
@@ -40,6 +42,10 @@
 	"routes": [
 		{
 			"pattern": "mail.dsainvg.dpdns.org",
+			"custom_domain": true
+		},
+		{
+			"pattern": "mail.dsainvg.me",
 			"custom_domain": true
 		}
 	]
