@@ -54,6 +54,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const [previewImage, setPreviewImage] = useState<{ url: string; filename: string } | null>(null);
 	const [isSummaryOpen, setIsSummaryOpen] = useState(false);
 	const [summaryContent, setSummaryContent] = useState<string | null>(null);
+	const [summaryModel, setSummaryModel] = useState<string | null>(null);
 	const [summaryError, setSummaryError] = useState<string | null>(null);
 	const [summarizeThread, setSummarizeThread] = useState(false);
 	const isDraftFolder = folder === Folders.DRAFT;
@@ -95,6 +96,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	useEffect(() => {
 		setIsSummaryOpen(false);
 		setSummaryContent(null);
+		setSummaryModel(null);
 		setSummaryError(null);
 	}, [currentEmailId]);
 
@@ -109,6 +111,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 			{
 				onSuccess: (data) => {
 					setSummaryContent(data.summary);
+					setSummaryModel(data.model || null);
 				},
 				onError: (err) => {
 					setSummaryError(
@@ -235,6 +238,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 			{isSummaryOpen && (
 				<EmailSummaryCard
 					summary={summaryContent}
+					model={summaryModel}
 					isLoading={summarizeMut.isPending}
 					error={summaryError}
 					isThreadSummarized={summarizeThread}

@@ -14,8 +14,19 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+function formatModelName(model?: string | null): string {
+	if (!model) return "Nemotron 3 120B (Free)";
+	if (model.includes("nemotron-3-120b")) return "Nemotron 3 120B (Free)";
+	if (model.includes("llama-3.3-70b")) return "Llama 3.3 70B (Free)";
+	if (model.includes("llama-3.1-8b")) return "Llama 3.1 8B (Free)";
+	if (model.includes("mistral-7b")) return "Mistral 7B (Free)";
+	if (model.includes("qwen")) return "Qwen 1.5 7B (Free)";
+	return model.replace(/^@cf\/[^/]+\//, "");
+}
+
 interface EmailSummaryCardProps {
 	summary: string | null;
+	model?: string | null;
 	isLoading: boolean;
 	error: string | null;
 	isThreadSummarized?: boolean;
@@ -27,6 +38,7 @@ interface EmailSummaryCardProps {
 
 export default function EmailSummaryCard({
 	summary,
+	model,
 	isLoading,
 	error,
 	isThreadSummarized = false,
@@ -56,9 +68,19 @@ export default function EmailSummaryCard({
 						<SparkleIcon size={16} weight="fill" className="text-amber-500 animate-pulse" />
 						<span>AI Summary</span>
 					</div>
-					<Badge variant="secondary" size="sm">
-						Llama 3.1 8B (Free)
-					</Badge>
+					<Tooltip
+						content={
+							model
+								? `Generated with ${model} (automatic fallback enabled)`
+								: "Primary: Nemotron 3 120B with automatic free fallbacks"
+						}
+						side="bottom"
+						asChild
+					>
+						<Badge variant="secondary" className="cursor-help text-[11px]">
+							{formatModelName(model)}
+						</Badge>
+					</Tooltip>
 
 					{hasThread && onToggleThreadSummary && (
 						<div className="flex items-center rounded-md border border-kumo-line bg-kumo-base p-0.5 ml-2">

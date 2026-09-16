@@ -22,6 +22,7 @@ import {
 	retargetRulesForFolderRename,
 	executeAutomations,
 } from "./lib/automations";
+import { runAiWithFallbacks, CLOUDFLARE_AI_MODELS } from "./lib/ai";
 import { AUTOMATION_MATCH_FIELDS, isAutomationAction, parseAutomationActions, type AutomationAction } from "../shared/automations";
 import { generateApiKey, listApiKeys, revokeApiKey, validateApiKey } from "./lib/api-keys";
 import {
@@ -885,7 +886,7 @@ app.post("/api/v1/mailboxes/:mailboxId/emails/:id/summarize", async (c: AppConte
 	if (!contentToSummarize) {
 		return c.json({
 			summary: "This email contains no readable text content to summarize.",
-			model: "@cf/meta/llama-3.1-8b-instruct",
+			model: CLOUDFLARE_AI_MODELS.PRIMARY,
 			isThread,
 		});
 	}
@@ -900,9 +901,8 @@ Format using clean Markdown:
 Keep it objective, skimmable, and directly based on the provided email text.`;
 
 	try {
-		const response = (await c.env.AI.run(
-			// @ts-expect-error — Cloudflare free model
-			"@cf/meta/llama-3.1-8b-instruct",
+		const { text: summaryText, model: usedModel } = await runAiWithFallbacks(
+			c.env.AI,
 			{
 				messages: [
 					{ role: "system", content: systemPrompt },
@@ -911,15 +911,15 @@ Keep it objective, skimmable, and directly based on the provided email text.`;
 						content: `Subject: ${email.subject || "(no subject)"}\nFrom: ${email.sender}\nTo: ${email.recipient}\n\nEmail Content:\n${contentToSummarize}`,
 					},
 				],
-				max_tokens: 600,
+				max_tokens: 800,
 				temperature: 0.2,
 			},
-		)) as { response?: string };
+		);
 
-		const summary = response?.response?.trim() || "No summary could be generated.";
+		const summary = summaryText.trim() || "No summary could be generated.";
 		return c.json({
 			summary,
-			model: "@cf/meta/llama-3.1-8b-instruct",
+			model: usedModel,
 			isThread,
 		});
 	} catch (err) {

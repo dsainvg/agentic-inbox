@@ -689,8 +689,8 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 													<span className="text-xs text-kumo-default font-medium">
 														Reply with AI
 													</span>
-													<Badge variant="secondary" size="sm">
-														Cloudflare Llama 3.1 8B (Free)
+													<Badge variant="secondary" className="text-[11px]" title="Nemotron 3 120B with automatic fallbacks: Llama 3.3 70B, Llama 3.1 8B, Mistral 7B, Qwen 1.5">
+														Nemotron 3 120B (Free) + Fallbacks
 													</Badge>
 												</div>
 												<textarea

@@ -11,8 +11,8 @@ import {
 } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { z } from "zod";
+import { verifyDraft, isPromptInjection, runAiWithFallbacks, CLOUDFLARE_AI_MODELS, AI_TEXT_MODELS } from "../lib/ai";
 import type { EmailFull, EmailMetadata } from "../lib/schemas";
-import { verifyDraft, isPromptInjection } from "../lib/ai";
 import {
 	getMailboxStub,
 	stripHtmlToText,
@@ -300,26 +300,22 @@ function createEmailTools(env: Env, mailboxId: string) {
 				if (!content) return { error: "No text content to summarize" };
 
 				try {
-					const res = (await env.AI.run(
-						// @ts-expect-error - Workers AI model
-						"@cf/meta/llama-3.1-8b-instruct",
-						{
-							messages: [
-								{
-									role: "system",
-									content:
-										"You are an executive assistant. Provide a concise, clear summary of the email with TL;DR, key points, and action items if any.",
-								},
-								{
-									role: "user",
-									content: `Subject: ${email.subject}\nFrom: ${email.sender}\n\nContent:\n${content}`,
-								},
-							],
-							max_tokens: 512,
-							temperature: 0.2,
-						},
-					)) as { response?: string };
-					return { summary: res?.response?.trim() || "No summary available" };
+					const res = await runAiWithFallbacks(env.AI, {
+						messages: [
+							{
+								role: "system",
+								content:
+									"You are an executive assistant. Provide a concise, clear summary of the email with TL;DR, key points, and action items if any.",
+							},
+							{
+								role: "user",
+								content: `Subject: ${email.subject}\nFrom: ${email.sender}\n\nContent:\n${content}`,
+							},
+						],
+						max_tokens: 512,
+						temperature: 0.2,
+					});
+					return { summary: res.text, model: res.model };
 				} catch (e) {
 					return { error: (e as Error).message };
 				}
@@ -340,7 +336,7 @@ export class EmailAgent extends AIChatAgent<any> {
 		const systemPrompt = await getSystemPrompt(env, mailboxId);
 
 		const result = streamText({
-			model: workersai("@cf/meta/llama-3.1-8b-instruct"),
+			model: workersai(CLOUDFLARE_AI_MODELS.PRIMARY as any),
 			system: systemPrompt,
 			messages: await convertToModelMessages(this.messages),
 			tools,
@@ -521,13 +517,30 @@ Based on the email content and thread context above, draft a reply using draft_r
 		];
 
 		try {
-			const result = await generateText({
-				model: workersai("@cf/meta/llama-3.1-8b-instruct"),
-				system: systemPrompt,
-				messages: await convertToModelMessages(messages),
-				tools,
-				stopWhen: stepCountIs(5),
-			});
+			let result: any = null;
+			let usedModel = "";
+			let lastErr: Error | null = null;
+
+			for (const modelId of AI_TEXT_MODELS) {
+				try {
+					result = await generateText({
+						model: workersai(modelId as any),
+						system: systemPrompt,
+						messages: await convertToModelMessages(messages),
+						tools,
+						stopWhen: stepCountIs(5),
+					});
+					usedModel = modelId;
+					break;
+				} catch (err) {
+					console.warn(`[Auto-draft] Model ${modelId} failed, trying fallback:`, (err as Error).message);
+					lastErr = err as Error;
+				}
+			}
+
+			if (!result) {
+				throw lastErr || new Error("All AI models failed during auto-draft generation");
+			}
 
 			// Check if draft_reply was called (saves to Drafts as side effect).
 			// If NOT, save the agent's text response as a draft directly.

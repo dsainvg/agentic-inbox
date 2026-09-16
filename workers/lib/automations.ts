@@ -13,7 +13,7 @@ import { and, asc, eq, like } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { Env } from "../types";
 import { sendSmtpEmail } from "./smtp";
-import { isPromptInjection } from "./ai";
+import { isPromptInjection, runAiWithFallbacks } from "./ai";
 import { stripHtmlToText } from "./email-helpers";
 import {
 	parseAutomationActions,
@@ -289,8 +289,9 @@ async function sendAiReply(
 		? email.subject
 		: `Re: ${email.subject}`;
 
-	// Generate the AI reply text using Cloudflare Workers AI free model
+	// Generate the AI reply text using Cloudflare Workers AI with fallback models
 	let generatedReply = "";
+	let usedModel = "";
 	if (env.AI) {
 		try {
 			const plainBody = email.body ? stripHtmlToText(email.body).trim() : "";
@@ -307,27 +308,24 @@ Strict requirements:
 - Plain text only. No markdown formatting (no bold **, no headers #, no bullet stars).
 - Directly address the sender and their email content.`;
 
-			const response = (await env.AI.run(
-				// @ts-expect-error — Workers AI free model identifier
-				"@cf/meta/llama-3.1-8b-instruct",
-				{
-					messages: [
-						{ role: "system", content: systemPrompt },
-						{
-							role: "user",
-							content: `From: ${email.from}\nSubject: ${email.subject}\n\nEmail body:\n${plainBody || "(No message body)"}`,
-						},
-					],
-					max_tokens: 1024,
-					temperature: 0.3,
-				},
-			)) as { response?: string };
+			const res = await runAiWithFallbacks(env.AI, {
+				messages: [
+					{ role: "system", content: systemPrompt },
+					{
+						role: "user",
+						content: `From: ${email.from}\nSubject: ${email.subject}\n\nEmail body:\n${plainBody || "(No message body)"}`,
+					},
+				],
+				max_tokens: 1024,
+				temperature: 0.3,
+			});
 
-			generatedReply = (response?.response || "").trim();
+			generatedReply = res.text.trim();
+			usedModel = res.model;
 			// Remove any accidental leading "Subject: ..." line
 			generatedReply = generatedReply.replace(/^subject:\s*.*?\n+/i, "").trim();
 		} catch (e) {
-			console.error(`Automation ${rule.id} AI generation failed:`, (e as Error).message);
+			console.error(`Automation ${rule.id} AI generation failed across all models:`, (e as Error).message);
 		}
 	}
 
@@ -341,6 +339,7 @@ Strict requirements:
 		"X-Auto-Response-Suppress": "All",
 		"X-Auto-Rule": rule.id,
 		"X-AI-Generated": "true",
+		"X-AI-Model": usedModel || "@cf/nvidia/nemotron-3-120b-a12b",
 	};
 	if (email.inReplyTo) headers["In-Reply-To"] = `<${email.inReplyTo}>`;
 	const refs = [...(email.references ?? [])];
@@ -367,7 +366,7 @@ Strict requirements:
 			});
 			smtpMessageId = res.messageId;
 			status = "sent";
-			console.log(`Automation ${rule.id} AI replied to ${email.from} (${res.messageId})`);
+			console.log(`Automation ${rule.id} AI replied to ${email.from} (${res.messageId}) using ${usedModel}`);
 		} catch (err) {
 			console.error(`Automation ${rule.id} AI reply failed:`, (err as Error).message);
 		}
@@ -390,7 +389,7 @@ Strict requirements:
 		in_reply_to: email.inReplyTo || null,
 		thread_id: email.threadId || replyId,
 		message_id: smtpMessageId || replyId,
-		raw_headers: JSON.stringify({ autoReplyRuleId: rule.id, aiGenerated: true }),
+		raw_headers: JSON.stringify({ autoReplyRuleId: rule.id, aiGenerated: true, aiModel: usedModel }),
 	});
 
 	return status;
