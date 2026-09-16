@@ -6,7 +6,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "~/services/api";
 import type { Folder } from "~/types";
 import { queryKeys } from "./keys";
-
 export function useFolders(mailboxId: string | undefined) {
 	return useQuery<Folder[]>({
 		queryKey: mailboxId

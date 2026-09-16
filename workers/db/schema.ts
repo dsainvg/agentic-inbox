@@ -60,3 +60,15 @@ export const users = sqliteTable("users", {
 	created_at: text("created_at").notNull(),
 });
 
+export const automationRules = sqliteTable("automation_rules", {
+	id: text("id").primaryKey(),
+	mailbox_id: text("mailbox_id")
+		.notNull()
+		.references(() => mailboxes.id, { onDelete: "cascade" }),
+	match_field: text("match_field").notNull(), // "from" | "subject" | "to"
+	match_value: text("match_value").notNull(), // case-insensitive "contains" text
+	actions: text("actions").notNull().default("[]"), // JSON AutomationAction[]
+	enabled: integer("enabled").notNull().default(1),
+	created_at: text("created_at").notNull(),
+});
+

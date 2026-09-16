@@ -2,7 +2,21 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import type { ApiKeyRecord, ApiKeySummary, Email, Folder, Mailbox } from "~/types";
+import type {
+	ApiKeyRecord,
+	ApiKeySummary,
+	Automation,
+	Email,
+	Folder,
+	Mailbox,
+} from "~/types";
+import type { AutomationAction } from "shared/automations";
+
+export type NewAutomation = {
+	matchField: "from" | "subject" | "to";
+	matchValue: string;
+	actions: AutomationAction[];
+};
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -156,6 +170,16 @@ const api = {
 		put<Folder>(`/api/v1/mailboxes/${mailboxId}/folders/${id}`, { name }),
 	deleteFolder: (mailboxId: string, id: string) =>
 		del<void>(`/api/v1/mailboxes/${mailboxId}/folders/${id}`),
+
+	// Automations
+	listAutomations: (mailboxId: string) =>
+		get<Automation[]>(`/api/v1/mailboxes/${mailboxId}/automations`),
+	createAutomation: (mailboxId: string, rule: NewAutomation) =>
+		post<Automation>(`/api/v1/mailboxes/${mailboxId}/automations`, rule),
+	updateAutomation: (mailboxId: string, ruleId: string, patch: Partial<NewAutomation> & { enabled?: boolean }) =>
+		put<Automation>(`/api/v1/mailboxes/${mailboxId}/automations/${ruleId}`, patch),
+	deleteAutomation: (mailboxId: string, ruleId: string) =>
+		del<void>(`/api/v1/mailboxes/${mailboxId}/automations/${ruleId}`),
 
 	// Search
 	searchEmails: (mailboxId: string, params: Record<string, string>) =>
