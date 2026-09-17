@@ -67,9 +67,13 @@ const TOOL_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
 function ToolCallBadge({
 	toolName,
 	state,
+	active,
+	errorText,
 }: {
 	toolName: string;
 	state: string;
+	active: boolean;
+	errorText?: unknown;
 }) {
 	const info = TOOL_LABELS[toolName] || {
 		label: toolName,
@@ -78,36 +82,71 @@ function ToolCallBadge({
 	const isDone =
 		state === "output-available" ||
 		state === "result" ||
-		state === "output-error";
+		state === "output-error" || state === "output-denied";
+	const failed = state === "output-error" || state === "output-denied" || Boolean(errorText);
 
 	return (
 		<div className="flex items-center gap-1.5 py-1 px-2 rounded bg-kumo-fill/50 text-xs">
 			<span className="text-kumo-brand">{info.icon}</span>
 			<span className="text-kumo-strong">{info.label}</span>
-			{isDone ? (
+			{failed ? (
+				<span role="alert">{typeof errorText === "string" ? errorText : "Tool failed or was denied."}</span>
+			) : isDone ? (
 				<CheckCircleIcon
 					size={12}
 					weight="fill"
 					className="text-kumo-success ml-auto"
 				/>
-			) : (
+			) : active && !state.startsWith("approval-") ? (
 				<Loader size="sm" className="ml-auto" />
+			) : (
+				<span className="ml-auto">{state.startsWith("approval-") ? "Awaiting approval" : "Stopped"}</span>
 			)}
 		</div>
 	);
 }
 
-function getToolNameFromPart(part: UIMessage["parts"][number]): string | null {
-	if (part.type === "dynamic-tool") return (part as any).toolName ?? null;
-	if (part.type.startsWith("tool-")) return part.type.replace("tool-", "");
-	return null;
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? value as Record<string, unknown> : null;
 }
 
-function hasDraftReplyTool(message: UIMessage): boolean {
-	return message.parts.some((part) => {
-		const toolName = getToolNameFromPart(part);
-		return toolName === "draft_reply";
-	});
+// SDK 6 uses tool-<name> / dynamic-tool with output; retain legacy result support.
+function getToolPart(part: UIMessage["parts"][number]) {
+	const record = asRecord(part)!;
+	const tool = asRecord(record.toolInvocation) ?? record;
+	const name = part.type === "dynamic-tool" || record.toolInvocation
+		? tool.toolName
+		: part.type.startsWith("tool-") ? part.type.slice(5) : tool.toolName;
+	if (typeof name !== "string") return null;
+	return { name, state: String(tool.state ?? "running"), output: tool.output ?? tool.result, errorText: tool.errorText };
+}
+
+function getSavedDraft(part: UIMessage["parts"][number], mailboxId: string) {
+	const tool = getToolPart(part);
+	if (!tool || !["draft_reply", "draft_email"].includes(tool.name) ||
+		!["output-available", "result"].includes(tool.state)) return null;
+	const output = asRecord(tool.output);
+	const draft = asRecord(output?.draft);
+	if (!output || output.error || !draft || typeof output.draftId !== "string" ||
+		!output.draftId.trim() || typeof draft.to !== "string" ||
+		typeof draft.subject !== "string" || typeof draft.body !== "string" || !draft.body.trim()) return null;
+	return {
+		id: output.draftId,
+		mailbox_id: mailboxId,
+		folder_id: "draft",
+		subject: draft.subject,
+		sender: mailboxId,
+		recipient: draft.to,
+		// Use the saved HTML, including server verification and quoted content, not tool input.
+		body: draft.body,
+		in_reply_to: typeof draft.originalEmailId === "string" ? draft.originalEmailId : null,
+		thread_id: typeof output.threadId === "string" ? output.threadId :
+			typeof draft.threadId === "string" ? draft.threadId : null,
+		date: new Date().toISOString(),
+		read: true,
+		starred: false,
+	};
 }
 
 function DraftActions({
@@ -138,7 +177,7 @@ function MessageBubble({
 	isStreaming,
 }: {
 	message: UIMessage;
-	onAction?: (action: string) => void;
+	onAction?: (part: UIMessage["parts"][number]) => void;
 	isStreaming: boolean;
 }) {
 	const isUser = message.role === "user";
@@ -269,25 +308,20 @@ function MessageBubble({
 							</div>
 						);
 					}
-					const toolName = getToolNameFromPart(part);
-					if (toolName) {
+					const tool = getToolPart(part);
+					if (tool) {
 						return (
-							<ToolCallBadge
-								key={key}
-								toolName={toolName}
-								state={(part as any).state ?? "running"}
-							/>
+							<div key={key}>
+								<ToolCallBadge toolName={tool.name} state={tool.state} active={isStreaming}
+									errorText={tool.errorText ?? asRecord(tool.output)?.error} />
+								{!isUser && onAction && getSavedDraft(part, "") && (
+									<DraftActions onEdit={() => onAction(part)} disabled={isStreaming} />
+								)}
+							</div>
 						);
 					}
 					return null;
 				})}
-				{/* Show action buttons for draft replies */}
-				{!isUser && hasDraftReplyTool(message) && onAction && (
-					<DraftActions
-						onEdit={() => onAction("edit")}
-						disabled={isStreaming}
-					/>
-				)}
 			</div>
 		</div>
 	);
@@ -307,10 +341,66 @@ function AgentChatConnected({
 	const [inputValue, setInputValue] = useState("");
 	const { startCompose } = useUIStore();
 
-	const agent = useAgent({ agent: "EmailAgent", name: mailboxId });
-	const { messages, sendMessage, status, setMessages, stop } =
-		useAgentChat({ agent });
-	const isStreaming = status === "streaming" || status === "submitted";
+	const [connected, setConnected] = useState(false);
+	const [connectionError, setConnectionError] = useState<string | null>(null);
+	const [chatError, setChatError] = useState<string | null>(null);
+	const [pending, setPending] = useState(false);
+	const requestRef = useRef<symbol | null>(null);
+	const stopRef = useRef<() => void>(() => {});
+	const disconnect = (message: string) => {
+		setConnected(false);
+		setConnectionError(message);
+		if (requestRef.current) {
+			setChatError("Connection lost. Generation stopped; your message was not resent. Check Drafts before trying again.");
+		}
+		stopRef.current();
+	};
+	const agent = useAgent({
+		agent: "EmailAgent", name: mailboxId,
+		// Never queue a send across a disconnect.
+		maxEnqueuedMessages: 0,
+		onOpen: () => { setConnected(true); setConnectionError(null); },
+		onClose: () => disconnect("Agent disconnected. Waiting for connection; reload if this persists."),
+		onError: () => disconnect("Unable to connect to the agent. Check your connection and sign-in, or reload to retry."),
+	});
+	const { messages, sendMessage, status, setMessages, stop, error, clearError } =
+		useAgentChat({ agent, resume: false, sendAutomaticallyWhen: () => false });
+	const stopGeneration = () => {
+		requestRef.current = null;
+		setPending(false);
+		void stop();
+	};
+	stopRef.current = stopGeneration;
+	const isStreaming = pending || status === "streaming" || status === "submitted";
+	const canSend = connected && !isStreaming;
+
+	useEffect(() => {
+		if (connected) return;
+		const timer = setTimeout(() => {
+			setConnectionError("Agent connection timed out. Check your connection and sign-in, or reload to retry.");
+			stopRef.current();
+		}, 15_000);
+		return () => clearTimeout(timer);
+	}, [connected]);
+
+	// One absolute deadline, not an inactivity timer reset by incoming tokens.
+	useEffect(() => {
+		if (!isStreaming) return;
+		const timer = setTimeout(() => {
+			setChatError("Generation timed out after 70 seconds. Nothing was resent. Check Drafts before trying again.");
+			stopRef.current();
+		}, 70_000); // Server deadline is 60 seconds.
+		return () => clearTimeout(timer);
+	}, [isStreaming]);
+
+	useEffect(() => {
+		if (error) {
+			setChatError(error.message || "Chat failed. Please try again.");
+			stopRef.current();
+		}
+	}, [error]);
+
+	useEffect(() => () => { stopRef.current(); }, []);
 
 	useEffect(() => {
 		const el = scrollRef.current;
@@ -321,13 +411,31 @@ function AgentChatConnected({
 		inputRef.current?.focus();
 	}, []);
 
-	const handleSend = () => {
-		const text = inputValue.trim();
-		if (!text || isStreaming) return;
+	const send = async (value: string) => {
+		const text = value.trim();
+		if (!text || !canSend || agent.readyState !== WebSocket.OPEN || requestRef.current) return;
+		const request = Symbol();
+		requestRef.current = request;
+		setPending(true);
+		setChatError(null);
+		clearError();
 		setInputValue("");
-		sendMessage({ text });
 		if (inputRef.current) inputRef.current.style.height = "auto";
+		try {
+			await sendMessage({ text });
+		} catch (err) {
+			if (requestRef.current === request) {
+				setChatError(err instanceof Error ? err.message : "Chat failed. Please try again.");
+				stopRef.current();
+			}
+		} finally {
+			if (requestRef.current === request) {
+				requestRef.current = null;
+				setPending(false);
+			}
+		}
 	};
+	const handleSend = () => { void send(inputValue); };
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
@@ -373,6 +481,14 @@ function AgentChatConnected({
 				</div>
 			</div>
 
+			<div className="shrink-0 px-3 pt-2 text-xs text-kumo-subtle" role="status">
+				{connected ? "Connected" : "Connecting… Sends are disabled until connected."}
+			</div>
+			<div id="agent-chat-error" role="alert" aria-atomic="true" className="shrink-0 px-3 text-xs text-kumo-default">
+				{connectionError && <p className="py-2">{connectionError}</p>}
+				{(chatError || error) && <p className="py-2">{chatError || error?.message}</p>}
+			</div>
+
 			{/* Messages */}
 			<div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4">
 				{messages.length === 0 ? (
@@ -393,9 +509,8 @@ function AgentChatConnected({
 								<button
 									key={prompt}
 									type="button"
-									onClick={() =>
-										sendMessage({ text: prompt })
-									}
+									disabled={!canSend}
+									onClick={() => { void send(prompt); }}
 									className="text-left px-3 py-2 rounded-lg border border-kumo-line text-xs text-kumo-strong hover:bg-kumo-tint hover:border-kumo-fill-hover transition-colors cursor-pointer bg-transparent"
 								>
 									{prompt}
@@ -409,47 +524,18 @@ function AgentChatConnected({
 							<MessageBubble
 								key={msg.id}
 								message={msg}
-								isStreaming={isStreaming}
-							onAction={(action) => {
-								if (action === "edit") {
-										// Extract draft data from the draft_reply tool result
-										let draftData: {
-											to?: string;
-											subject?: string;
-											body?: string;
-											id?: string;
-										} | null = null;
-										for (const part of msg.parts) {
-											if (
-												(part as any).toolName === "draft_reply" &&
-												(part as any).result
-											) {
-												draftData = (part as any).result;
-												break;
-											}
-										}
-										if (draftData) {
-											const draftEmail = {
-												id: draftData.id || "",
-												subject: draftData.subject || "",
-												sender: mailboxId,
-												recipient: draftData.to || "",
-												date: new Date().toISOString(),
-												read: true,
-												starred: false,
-												body: draftData.body || "",
-											};
-											startCompose({
-												mode: "reply",
-												originalEmail: null,
-												draftEmail,
-											});
-										} else {
-											sendMessage({
-												text: "Let me edit this draft first. Show me what you have so I can modify it.",
-											});
-										}
+								isStreaming={isStreaming && msg.id === messages[messages.length - 1]?.id}
+							onAction={(part) => {
+									const draftEmail = getSavedDraft(part, mailboxId);
+									if (!draftEmail) {
+										setChatError("This draft is unavailable. Open it from Drafts instead.");
+										return;
 									}
+									startCompose({
+										mode: draftEmail.in_reply_to ? "reply" : "new",
+										originalEmail: null,
+										draftEmail,
+									});
 								}}
 							/>
 						))}
@@ -478,7 +564,7 @@ function AgentChatConnected({
 							variant="secondary"
 							size="sm"
 							icon={<StopIcon size={14} weight="fill" />}
-							onClick={() => stop()}
+							onClick={stopGeneration}
 						>
 							Stop generating
 						</Button>
@@ -495,6 +581,7 @@ function AgentChatConnected({
 							placeholder="Ask your email agent..."
 							rows={1}
 							aria-label="Chat message input"
+							aria-describedby="agent-chat-error"
 							className="flex-1 resize-none rounded-lg border border-kumo-line bg-kumo-control px-3 py-2 text-xs text-kumo-default placeholder:text-kumo-subtle focus:outline-none focus:ring-1 focus:ring-kumo-ring min-h-[36px] max-h-[100px]"
 							style={{ height: "auto", overflow: "hidden" }}
 							onInput={(e) => {
@@ -509,7 +596,7 @@ function AgentChatConnected({
 							variant="primary"
 							shape="square"
 							size="sm"
-							disabled={!inputValue.trim()}
+							disabled={!inputValue.trim() || !canSend}
 							icon={<ArrowUpIcon size={14} weight="bold" />}
 							onClick={handleSend}
 							aria-label="Send message"
@@ -548,7 +635,7 @@ export default function AgentPanel() {
 	if (loadError) {
 		return (
 			<div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
-				<span className="text-xs text-kumo-error">{loadError}</span>
+				<span role="alert" className="text-xs text-kumo-default">{loadError}</span>
 			</div>
 		);
 	}
@@ -566,6 +653,7 @@ export default function AgentPanel() {
 
 	return (
 		<AgentChatConnected
+			key={mailboxId ?? "default"}
 			mailboxId={mailboxId ?? "default"}
 			useAgent={hooks.useAgent}
 			useAgentChat={hooks.useAgentChat}

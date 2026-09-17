@@ -8,41 +8,22 @@
  * Includes: DO stub helpers, sender validation, message-ID generation,
  * threading, HTML utilities, and tool-logic (getFullEmail / getFullThread).
  */
-import type { MailboxDO } from "../durableObject";
+import { MailboxStore, listD1Mailboxes } from "./mailbox-store";
 import type { EmailFull } from "./schemas";
 import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
 import { formatQuotedDate } from "../../shared/dates";
 
-// ── DO Stub ────────────────────────────────────────────────────────
-
-/**
- * Resolve a MailboxDO stub from a mailbox email address.
- * Replaces the repeated 3-line ns.idFromName / ns.get pattern.
- */
-export function getMailboxStub(
-	env: Env,
-	mailboxId: string,
-): DurableObjectStub<MailboxDO> {
-	const ns = env.MAILBOX;
-	const id = ns.idFromName(mailboxId);
-	return ns.get(id);
+/** Compatibility name for callers; all mailbox operations now use scoped D1. */
+export function getMailboxStub(env: Env, mailboxId: string): MailboxStore {
+	return new MailboxStore(env.DB, mailboxId);
 }
 
-// ── Mailbox Listing ────────────────────────────────────────────────
-
-/**
- * List all mailboxes from R2 bucket metadata.
- */
-export async function listMailboxes(
-	bucket: R2Bucket,
-): Promise<{ id: string; email: string }[]> {
-	const list = await bucket.list({ prefix: "mailboxes/" });
-	return list.objects.map((obj) => {
-		const id = obj.key.replace("mailboxes/", "").replace(".json", "");
-		return { id, email: id };
-	});
+export async function listMailboxes(db: D1Database): Promise<{ id: string; email: string }[]> {
+	return listD1Mailboxes(db);
 }
+
+export { replySubject } from "../../shared/email-subject";
 
 // ── Sender Validation ──────────────────────────────────────────────
 
@@ -101,7 +82,7 @@ export function buildReferencesChain(original: EmailFull): {
 	references: string[];
 	threadId: string;
 } {
-	const originalMsgId = original.message_id || original.id;
+	const originalMsgId = (original.message_id || original.id).replace(/^<|>$/g, "");
 	let existingRefs: string[] = [];
 	if (original.email_references) {
 		try {
@@ -137,7 +118,7 @@ export function buildThreadingHeaders(
  * Used by reply/forward routes to avoid threading against the draft itself.
  */
 export async function resolveOriginalEmail(
-	stub: DurableObjectStub<MailboxDO>,
+	stub: MailboxStore,
 	email: EmailFull,
 ): Promise<EmailFull> {
 	if (email.folder_id === Folders.DRAFT && email.in_reply_to) {
@@ -221,16 +202,12 @@ export function buildQuotedReplyBlock(original: {
 
 // ── Tool Logic (getFullEmail / getFullThread) ──────────────────────
 
-type MailboxThreadReaderStub = {
-	getThreadEmails: (threadId: string) => Promise<EmailFull[]>;
-};
-
 /**
  * Fetch a single email and return it with both HTML and plain-text body.
  * Returns null if the email is not found.
  */
 export async function getFullEmail(
-	stub: DurableObjectStub<MailboxDO>,
+	stub: MailboxStore,
 	emailId: string,
 ) {
 	const email = (await stub.getEmail(emailId)) as EmailFull | null;
@@ -246,11 +223,10 @@ export async function getFullEmail(
  * instead of the previous N+1 pattern (1 list query + N getEmail calls).
  */
 export async function getFullThread(
-	stub: DurableObjectStub<MailboxDO>,
+	stub: MailboxStore,
 	threadId: string,
 ) {
-	const threadStub = stub as unknown as MailboxThreadReaderStub;
-	const emails = await threadStub.getThreadEmails(threadId);
+	const emails = await stub.getThreadEmails(threadId);
 
 	const enriched = emails.map((email) => {
 		const textBody = email.body ? stripHtmlToText(email.body) : "";

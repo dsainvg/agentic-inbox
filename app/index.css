@@ -1,3 +1,4 @@
+@layer app-overrides;
 @source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
 @import "@cloudflare/kumo/styles/tailwind";
 @import "tailwindcss";
@@ -81,6 +82,15 @@ body {
   --color-kumo-danger-tint: #252525;
   --color-kumo-success: #bdbdbd;
   --color-kumo-success-tint: #252525;
+}
+
+/* Kumo primary buttons ship with !text-white. Our brand surface is nearly
+   white, so override in an earlier layer (important layer order is reversed).
+   Keep this scoped to solid brand actions, not ghost buttons or brand text. */
+@layer app-overrides {
+  :is(button, a).bg-kumo-brand {
+    color: #111111 !important;
+  }
 }
 
 /* Keep embedded message artwork and editor color previews monochrome too.

@@ -11,10 +11,14 @@ import {
 } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { z } from "zod";
-import { verifyDraft, isPromptInjection, runAiWithFallbacks, CLOUDFLARE_AI_MODELS, AI_TEXT_MODELS } from "../lib/ai";
-import type { EmailFull, EmailMetadata } from "../lib/schemas";
+import type { EmailFull } from "../lib/schemas";
+import { verifyDraft, isPromptInjection, runAiWithFallbacks, AI_TEXT_MODELS } from "../lib/ai";
+import { createChatModel } from "../lib/chat-model";
+import { withOwnerMemory } from "../lib/hierarchy";
+import { hasSavedDraft } from "../lib/agent-policy";
 import {
 	getMailboxStub,
+	replySubject,
 	stripHtmlToText,
 	textToHtml,
 } from "../lib/email-helpers";
@@ -34,10 +38,10 @@ import type { Env } from "../types";
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.
-function defineTool(def: {
+function defineTool<Schema extends z.ZodTypeAny>(def: {
 	description: string;
-	parameters: z.ZodType<any>;
-	execute: (...args: any[]) => Promise<any>;
+	parameters: Schema;
+	execute: (input: z.output<Schema>) => Promise<unknown>;
 }) {
 	return {
 		description: def.description,
@@ -88,23 +92,14 @@ You can ONLY draft emails. You do NOT have the ability to send emails directly.
 Use discard_draft to delete drafts that the operator rejects or that are no longer needed.`;
 
 /**
- * Fetch the custom system prompt for a mailbox from its R2 settings.
+ * Fetch the custom system prompt from the mailbox's D1-backed settings.
  * Falls back to DEFAULT_SYSTEM_PROMPT if none is configured.
  */
 async function getSystemPrompt(env: Env, mailboxId: string): Promise<string> {
-	try {
-		const key = `mailboxes/${mailboxId}.json`;
-		const obj = await env.BUCKET.get(key);
-		if (obj) {
-			const settings = await obj.json<Record<string, unknown>>();
-			if (typeof settings.agentSystemPrompt === "string" && settings.agentSystemPrompt.trim()) {
-				return settings.agentSystemPrompt;
-			}
-		}
-	} catch {
-		// Fall through to default
-	}
-	return DEFAULT_SYSTEM_PROMPT;
+	const settings = await getMailboxStub(env, mailboxId).getSettings();
+	const basePrompt = typeof settings.agentSystemPrompt === "string" && settings.agentSystemPrompt.trim()
+		? settings.agentSystemPrompt : DEFAULT_SYSTEM_PROMPT;
+	return withOwnerMemory(env.DB, mailboxId, basePrompt);
 }
 
 function createEmailTools(env: Env, mailboxId: string) {
@@ -279,21 +274,18 @@ function createEmailTools(env: Env, mailboxId: string) {
 			}),
 			execute: async ({ emailId, includeThread }): Promise<unknown> => {
 				const stub = getMailboxStub(env, mailboxId);
-				const email = (await stub.getEmail(emailId)) as EmailFull | null;
+				const email = await stub.getEmail(emailId);
 				if (!email) return { error: "Email not found" };
 
 				let content = email.body ? stripHtmlToText(email.body).trim() : "";
 				if (includeThread && email.thread_id) {
-					const threadEmails = (await stub.getEmails({ thread_id: email.thread_id })) as EmailMetadata[];
+					const threadEmails: EmailFull[] = await stub.getThreadEmails(email.thread_id);
 					if (threadEmails.length > 1) {
-						const fullThread = await Promise.all(
-							threadEmails.map(async (e) => {
-								const full = (await stub.getEmail(e.id)) as EmailFull | null;
-								const text = full?.body ? stripHtmlToText(full.body).trim() : "";
-								return `[${e.date}] From ${e.sender}: ${text}`;
-							}),
-						);
-						content = fullThread.join("\n\n---\n\n");
+						threadEmails.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+						content = threadEmails.map((e) => {
+							const text = e.body ? stripHtmlToText(e.body).trim() : "";
+							return `[${e.date}] From ${e.sender}: ${text}`;
+						}).join("\n\n---\n\n");
 					}
 				}
 
@@ -328,19 +320,27 @@ function createEmailTools(env: Env, mailboxId: string) {
 // SEND_EMAIL binding shape and the AIChatAgent constraint.  The actual env
 // is fully typed inside the tools via the closure.
 export class EmailAgent extends AIChatAgent<any> {
-	async onChatMessage(onFinish: any) {
+	async onChatMessage(onFinish: any, options?: { abortSignal?: AbortSignal }) {
 		const env = this.env as Env;
 		const mailboxId = this.name;
-		const workersai = createWorkersAI({ binding: env.AI });
 		const tools = createEmailTools(env, mailboxId);
 		const systemPrompt = await getSystemPrompt(env, mailboxId);
 
 		const result = streamText({
-			model: workersai(CLOUDFLARE_AI_MODELS.PRIMARY as any),
+			model: createChatModel(env.AI),
+			abortSignal: options?.abortSignal,
+			// The model wrapper handles startup fallback; avoid repeating the whole chain.
+			maxRetries: 0,
 			system: systemPrompt,
 			messages: await convertToModelMessages(this.messages),
 			tools,
 			stopWhen: stepCountIs(5),
+			// Bound the entire multi-step generation, not just an individual model call.
+			timeout: { totalMs: 60_000 },
+			onError: ({ error }) => console.error("[Chat stream failure]", {
+				message: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+			}),
 			onFinish,
 		});
 
@@ -400,8 +400,18 @@ export class EmailAgent extends AIChatAgent<any> {
 		let emailBody = "";
 		let threadContext = "";
 		try {
-			const email = (await stub.getEmail(emailData.emailId)) as EmailFull | null;
-			if (email?.body) {
+			const email = await stub.getEmail(emailData.emailId);
+			if (!email) {
+				return { status: "error", error: "Email not found in mailbox" };
+			}
+			// Use the mailbox-scoped stored record for both context and fallback drafts.
+			emailData = {
+				...emailData,
+				sender: email.sender,
+				subject: email.subject,
+				threadId: email.thread_id || email.id,
+			};
+			if (email.body) {
 				const isInjection = await isPromptInjection(env.AI, email.body);
 				if (isInjection) {
 					console.warn("Skipping auto-draft due to detected prompt injection:", emailData.emailId);
@@ -432,18 +442,11 @@ export class EmailAgent extends AIChatAgent<any> {
 			}
 
 		// Load thread for conversation context
-		const threadEmails = (await stub.getEmails({ thread_id: emailData.threadId })) as EmailMetadata[];
+		const threadEmails: EmailFull[] = await stub.getThreadEmails(emailData.threadId);
 		if (threadEmails.length > 1) {
-			const fullThread = await Promise.all(
-				threadEmails.map(async (e) => {
-					const full = (await stub.getEmail(e.id)) as EmailFull | null;
-					const text = full?.body ? stripHtmlToText(full.body) : "";
-					return { id: e.id, sender: e.sender, recipient: e.recipient, subject: e.subject, date: e.date, folder_id: e.folder_id, body_text: text };
-				}),
-			);
-			fullThread.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-			threadContext = fullThread
-				.map((e) => `[${e.date}] ${e.sender} → ${e.recipient} (${e.folder_id}): ${e.body_text.substring(0, 500)}`)
+			threadEmails.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+			threadContext = threadEmails
+				.map((e) => `[${e.date}] ${e.sender} → ${e.recipient} (${e.folder_id}): ${stripHtmlToText(e.body || "").substring(0, 500)}`)
 				.join("\n\n");
 
 			// Scan thread context for prompt injection too -- an attacker
@@ -517,8 +520,7 @@ Based on the email content and thread context above, draft a reply using draft_r
 		];
 
 		try {
-			let result: any = null;
-			let usedModel = "";
+			let result: Awaited<ReturnType<typeof generateText<typeof tools>>> | null = null;
 			let lastErr: Error | null = null;
 
 			for (const modelId of AI_TEXT_MODELS) {
@@ -530,7 +532,6 @@ Based on the email content and thread context above, draft a reply using draft_r
 						tools,
 						stopWhen: stepCountIs(5),
 					});
-					usedModel = modelId;
 					break;
 				} catch (err) {
 					console.warn(`[Auto-draft] Model ${modelId} failed, trying fallback:`, (err as Error).message);
@@ -542,24 +543,21 @@ Based on the email content and thread context above, draft a reply using draft_r
 				throw lastErr || new Error("All AI models failed during auto-draft generation");
 			}
 
-			// Check if draft_reply was called (saves to Drafts as side effect).
-			// If NOT, save the agent's text response as a draft directly.
-			const draftToolCalled = result.steps.some((step) =>
-				step.toolCalls.some((tc) => tc.toolName === "draft_reply" || tc.toolName === "draft_email"),
-			);
+			// Only a confirmed tool result proves persistence; a call alone does not.
+			let draftSaved = hasSavedDraft(result.steps);
 
-			if (!draftToolCalled && result.text.trim()) {
+			const draftAttempted = result.steps.some(step => step.toolCalls.some(call =>
+				call.toolName === "draft_reply" || call.toolName === "draft_email"));
+			// Never bypass a failed tool by saving its error commentary as an email.
+			if (!draftSaved && !draftAttempted && result.text.trim()) {
 				// Model generated a draft inline as text -- verify with AI
 				const sanitizedText = await verifyDraft(env.AI, result.text.trim());
 				if (!sanitizedText) {
 					// Inline text was entirely agent commentary, skip
 				} else {
 					const draftId = crypto.randomUUID();
-					const draftStub = getMailboxStub(env, emailData.mailboxId);
-					const reSubject = emailData.subject.startsWith("Re:")
-						? emailData.subject
-						: `Re: ${emailData.subject}`;
-					await draftStub.createEmail(
+					const reSubject = replySubject(emailData.subject);
+					await stub.createEmail(
 						Folders.DRAFT,
 						{
 							id: draftId,
@@ -578,16 +576,14 @@ Based on the email content and thread context above, draft a reply using draft_r
 						},
 						[],
 					);
-					// Inline text saved as draft
+					draftSaved = true;
 				}
 			}
 
-			// Persist the conversation into the agent's chat history
-			// If it called the tool, we just log a simple success message so the chat isn't cluttered
-			// with conversational slop.
-			const assistantText = draftToolCalled 
-				? `Created draft reply to ${emailData.sender}.`
-				: result.text;
+			// Report confirmed state, never an unverified model claim.
+			const assistantText = draftSaved
+				? "Saved an email draft for review. No email was sent."
+				: "No draft was confirmed saved. Review the email manually; no email was sent.";
 
 			const newMessages = [
 				{
@@ -618,7 +614,7 @@ Based on the email content and thread context above, draft a reply using draft_r
 
 			await this.persistMessages([...this.messages, ...newMessages]);
 
-			return { status: "draft_generated", text: result.text };
+			return { status: draftSaved ? "draft_generated" : "draft_not_saved", text: assistantText };
 		} catch (e) {
 			console.error("Auto-draft failed:", (e as Error).message);
 			return { status: "error", error: (e as Error).message };

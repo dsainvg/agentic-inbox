@@ -14,7 +14,7 @@ import {
 	LightningIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
 import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "~/queries/api-keys";
 import { useFolders } from "~/queries/folders";
@@ -28,6 +28,7 @@ import { Folders as FOLDER_CONSTS, FOLDER_DISPLAY_NAMES, SYSTEM_FOLDER_IDS } fro
 import type { AutomationMatchField } from "~/types";
 import type { AutomationAction } from "shared/automations";
 import api from "~/services/api";
+import HierarchySettings from "~/components/HierarchySettings";
 
 // Placeholder shown in the textarea when no custom prompt is set.
 // The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
@@ -35,6 +36,15 @@ const PROMPT_PLACEHOLDER = `You are an email assistant that helps manage this in
 
 /** "from" -> "From" etc. for rule descriptions. */
 const matchFieldLabel = (f: string) => f.charAt(0).toUpperCase() + f.slice(1);
+
+const SETTINGS_SECTIONS = [
+	{ id: "general", label: "General" },
+	{ id: "api-keys", label: "API Keys" },
+	{ id: "groups", label: "Groups" },
+	{ id: "memory", label: "Memory" },
+	{ id: "automations", label: "Automations" },
+	{ id: "mailbox-rules", label: "Mailbox rules" },
+] as const;
 
 /** Human-readable description of a rule action. */
 function describeAction(
@@ -114,11 +124,21 @@ function FolderTargetSelect({
 
 export default function SettingsRoute() {
 	const { mailboxId } = useParams<{ mailboxId: string }>();
+	// Never carry a revealed API key or in-progress form into another mailbox.
+	return <MailboxSettings key={mailboxId} />;
+}
+
+function MailboxSettings() {
+	const { mailboxId, section } = useParams<{ mailboxId: string; section?: string }>();
 	const toastManager = useKumoToastManager();
-	const { data: mailbox } = useMailbox(mailboxId);
+	const isWorkspace = mailboxId === "all";
+	const specificMailboxId = isWorkspace ? undefined : mailboxId;
+	const sections = SETTINGS_SECTIONS.filter((item) => !isWorkspace || ["groups", "memory", "automations"].includes(item.id));
+	const activeSection = sections.find((item) => item.id === section)?.id ?? (isWorkspace ? "groups" : "general");
+	const { data: mailbox, error: mailboxError } = useMailbox(specificMailboxId);
 	const updateMailboxMutation = useUpdateMailbox();
 
-	const { data: apiKeys, isLoading: isLoadingKeys } = useApiKeys(mailboxId);
+	const { data: apiKeys, isLoading: isLoadingKeys, error: keysError, refetch: refetchKeys } = useApiKeys(activeSection === "api-keys" ? specificMailboxId : undefined);
 	const createApiKeyMutation = useCreateApiKey();
 	const deleteApiKeyMutation = useDeleteApiKey();
 
@@ -139,11 +159,11 @@ export default function SettingsRoute() {
 	const [passwordError, setPasswordError] = useState("");
 
 	// Automations state
-	const { data: automations = [], isLoading: isLoadingAutomations } = useAutomations(mailboxId);
+	const { data: automations = [], isLoading: isLoadingAutomations, error: automationsError, refetch: refetchAutomations } = useAutomations(activeSection === "mailbox-rules" ? specificMailboxId : undefined);
 	const createAutomationMutation = useCreateAutomation();
 	const updateAutomationMutation = useUpdateAutomation();
 	const deleteAutomationMutation = useDeleteAutomation();
-	const { data: folders = [] } = useFolders(mailboxId);
+	const { data: folders = [] } = useFolders(specificMailboxId);
 	const [matchField, setMatchField] = useState<AutomationMatchField>("from");
 	const [matchValue, setMatchValue] = useState("");
 	const [draftActions, setDraftActions] = useState<AutomationAction[]>([]);
@@ -163,6 +183,7 @@ export default function SettingsRoute() {
 	const folderDisplayName = (id: string) => FOLDER_DISPLAY_NAMES[id] || id;
 
 	const canAddAction = (type: AutomationAction["type"]) => {
+		if (draftActions.length >= 20) return false;
 		if (type === "auto_reply" || type === "ai_reply") {
 			return !draftActions.some((a) => a.type === "auto_reply" || a.type === "ai_reply");
 		}
@@ -348,7 +369,8 @@ export default function SettingsRoute() {
 		}
 	};
 
-	if (!mailbox) {
+	if (!isWorkspace && mailboxError) return <div role="alert" className="p-8">Unable to load mailbox settings: {mailboxError.message} <Link to="/">Back to mailboxes</Link></div>;
+	if (!isWorkspace && !mailbox) {
 		return (
 			<div className="flex justify-center items-center h-full bg-[#0f0f0f] py-20">
 				<Loader size="lg" />
@@ -363,9 +385,31 @@ export default function SettingsRoute() {
 	return (
 		<div className="w-full h-full overflow-y-auto bg-[#0f0f0f] grayscale">
 			<div className="max-w-4xl mx-auto px-6 py-8 md:px-10 md:py-10">
-				<h1 className="text-[22px] font-bold text-white/95 mb-8 tracking-tight">Settings</h1>
+				<h1 className="text-[22px] font-bold text-white/95 mb-1 tracking-tight">{isWorkspace ? "Workspace settings" : "Mailbox settings"}</h1>
+				<p className="text-sm text-white/60 mb-5 break-words">{isWorkspace ? "Manage groups, shared memory, and automations across your mailboxes." : mailbox?.email}</p>
+
+				{/* Section navigation */}
+				<nav aria-label="Settings sections" className="flex flex-wrap items-center gap-2 mb-8">
+					{sections.map((tab) => (
+						<Link
+							key={tab.id}
+							to={`/mailbox/${mailboxId}/settings/${tab.id}`}
+							aria-current={activeSection === tab.id ? "page" : undefined}
+							className={`text-[13px] font-medium rounded-full px-3.5 py-1.5 border transition-colors ${
+								activeSection === tab.id
+									? "bg-white/[0.1] text-white border-white/[0.14]"
+									: "bg-transparent text-white/50 border-white/[0.08] hover:text-white/90 hover:border-white/[0.18]"
+							}`}
+						>
+							{tab.label}
+						</Link>
+					))}
+				</nav>
 
 				<div className="space-y-8">
+					{(activeSection === "groups" || activeSection === "memory" || activeSection === "automations") && <HierarchySettings key={`${mailboxId}:${activeSection}`} section={activeSection} mailboxId={specificMailboxId} />}
+					{activeSection === "general" && mailbox && (
+						<>
 					{/* Account */}
 					<div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-4">
 					<div>
@@ -415,7 +459,7 @@ export default function SettingsRoute() {
 						<textarea
 							aria-label="AI System Prompt"
 							rows={5}
-							className="w-full text-xs p-3 rounded-xl border border-white/[0.08] bg-[#0c0c0c] text-white/90 placeholder:text-white/30 resize-y focus:outline-none focus:border-white/20 font-mono leading-relaxed"
+							className="w-full text-xs p-3 rounded-xl border border-white/[0.08] bg-[#0c0c0c] text-white/90 placeholder:text-white/60 resize-y focus:outline-none focus:ring-2 focus:ring-white/60 font-mono leading-relaxed"
 							placeholder={PROMPT_PLACEHOLDER}
 							value={agentPrompt}
 							onChange={(e) => setAgentPrompt(e.target.value)}
@@ -423,7 +467,11 @@ export default function SettingsRoute() {
 					</div>
 				</div>
 
+						</>
+					)}
+
 				{/* API Keys & External GET Access */}
+				{activeSection === "api-keys" && mailbox && (
 				<div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-5">
 					<div>
 						<div className="flex items-center gap-2 mb-1">
@@ -438,10 +486,11 @@ export default function SettingsRoute() {
 					</div>
 
 					{/* Create API Key Form */}
-					<div className="flex items-end gap-3">
-						<div className="flex-1">
+					<div className="flex flex-wrap items-end gap-3">
+						<div className="min-w-0 flex-1 basis-56">
 							<Input
 								label="Key Description / Name"
+								className="w-full"
 								placeholder="e.g. Zapier Integration, Node.js Script"
 								value={keyDescription}
 								onChange={(e) => setKeyDescription(e.target.value)}
@@ -485,6 +534,11 @@ export default function SettingsRoute() {
 						{isLoadingKeys ? (
 							<div className="py-4 text-center">
 								<Loader size="sm" />
+							</div>
+						) : keysError ? (
+							<div role="alert" className="space-y-2 text-sm text-white/70">
+								<p>Unable to load API keys: {keysError.message}</p>
+								<Button variant="secondary" size="sm" onClick={() => void refetchKeys()}>Retry</Button>
 							</div>
 						) : !apiKeys || apiKeys.length === 0 ? (
 							<p className="text-xs text-white/40 py-3 italic border border-dashed border-white/[0.07] rounded-xl text-center">
@@ -596,13 +650,15 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 					</div>
 				</div>
 
+				)}
+
 				{/* Automations */}
-				{mailboxId && mailboxId !== "all" && (
+				{activeSection === "mailbox-rules" && mailboxId && mailboxId !== "all" && (
 					<div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-5">
 						<div className="flex items-center justify-between flex-wrap gap-2">
 							<div className="flex items-center gap-2">
 								<LightningIcon size={16} className="text-white/60" />
-								<span className="text-[14px] font-semibold text-white/90">Automations</span>
+								<span className="text-[14px] font-semibold text-white/90">Mailbox rules</span>
 							</div>
 							<Badge variant="secondary" className="bg-white/[0.08] text-white/80 border-white/[0.1] text-[11px]">
 								Auto-file new emails
@@ -821,6 +877,11 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 							<div className="py-4 text-center">
 								<Loader size="sm" />
 							</div>
+						) : automationsError ? (
+							<div role="alert" className="space-y-2 text-sm text-white/70">
+								<p>Unable to load mailbox rules: {automationsError.message}</p>
+								<Button variant="secondary" size="sm" onClick={() => void refetchAutomations()}>Retry</Button>
+							</div>
 						) : automations.length === 0 ? (
 							<p className="text-xs text-white/40 italic border border-dashed border-white/[0.07] rounded-xl py-3 text-center">
 								No automations yet. Add a rule above to automatically file incoming emails into folders.
@@ -881,6 +942,8 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 					</div>
 				)}
 
+				{activeSection === "general" && (
+					<>
 				{/* Change Password */}
 				<div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-4">
 					<div className="flex items-center justify-between flex-wrap gap-2">
@@ -941,6 +1004,8 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 						Save Changes
 					</Button>
 				</div>
+					</>
+				)}
 			</div>
 		</div>
 	</div>

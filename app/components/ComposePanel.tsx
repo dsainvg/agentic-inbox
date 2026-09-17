@@ -2,7 +2,8 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Banner, Button, Input } from "@cloudflare/kumo";
+import { Banner, Button } from "@cloudflare/kumo";
+import ComposeFields from "./ComposeFields";
 import {
 	FloppyDiskIcon,
 	PaperPlaneTiltIcon,
@@ -108,7 +109,7 @@ export default function ComposePanel() {
 				onSubmit={(e) => handleSend(e, closePanel)}
 				className="flex flex-col flex-1 min-h-0 overflow-y-auto"
 			>
-				<div className="p-6 md:p-8 space-y-4">
+				<div className="p-4 sm:p-6 md:p-8 space-y-5">
 					{error && <div className="grayscale"><Banner variant="error" text={error} /></div>}
 
 					{aiPanelOpen && (
@@ -124,7 +125,7 @@ export default function ComposePanel() {
 								rows={2}
 								maxLength={2000}
 								placeholder="Describe what to write — e.g. “polite follow-up asking the client to confirm the delivery date this week”…"
-								className="w-full text-xs p-2.5 rounded-lg border border-white/[0.08] bg-[#0c0c0c] text-white/90 placeholder:text-white/30 resize-y focus:outline-none focus:border-white/20"
+								className="w-full text-xs p-2.5 rounded-lg border border-white/[0.08] bg-[#0c0c0c] text-white/90 placeholder:text-white/60 resize-y focus:outline-none focus:ring-2 focus:ring-white/60"
 							/>
 							<div className="flex flex-wrap items-center gap-2">
 								<Button
@@ -161,82 +162,11 @@ export default function ComposePanel() {
 						</div>
 					)}
 
-					<div className="space-y-3">
-						<div className="flex items-center gap-2">
-							<label className="text-[13px] font-medium text-white/40 w-16 shrink-0">
-								To
-							</label>
-							<div className="flex-1 flex items-center gap-2 min-w-0">
-								<Input
-									type="text"
-									placeholder="recipient@example.com"
-									size="sm"
-									value={to}
-									onChange={(e) => setTo(e.target.value)}
-									required
-								/>
-								{!showCcBcc && (
-									<button
-										type="button"
-										onClick={() => setShowCcBcc(true)}
-										className="shrink-0 text-[12px] text-white/40 hover:text-white/80 font-medium"
-									>
-										CC / BCC
-									</button>
-								)}
-							</div>
-						</div>
-
-						{showCcBcc && (
-							<div className="flex items-center gap-2">
-								<label className="text-[13px] font-medium text-white/40 w-16 shrink-0">
-									CC
-								</label>
-								<div className="flex-1">
-									<Input
-										type="text"
-										size="sm"
-										value={cc}
-										onChange={(e) => setCc(e.target.value)}
-										placeholder="Separate multiple addresses with commas"
-									/>
-								</div>
-							</div>
-						)}
-
-						{showCcBcc && (
-							<div className="flex items-center gap-2">
-								<label className="text-[13px] font-medium text-white/40 w-16 shrink-0">
-									BCC
-								</label>
-								<div className="flex-1">
-									<Input
-										type="text"
-										size="sm"
-										value={bcc}
-										onChange={(e) => setBcc(e.target.value)}
-										placeholder="Separate multiple addresses with commas"
-									/>
-								</div>
-							</div>
-						)}
-
-						<div className="flex items-center gap-2">
-							<label className="text-[13px] font-medium text-white/40 w-16 shrink-0">
-								Subject
-							</label>
-							<div className="flex-1">
-								<Input
-									type="text"
-									placeholder="Email subject"
-									size="sm"
-									value={subject}
-									onChange={(e) => setSubject(e.target.value)}
-									required
-								/>
-							</div>
-						</div>
-					</div>
+					<ComposeFields
+						to={to} setTo={setTo} cc={cc} setCc={setCc} bcc={bcc} setBcc={setBcc}
+						showCcBcc={showCcBcc} setShowCcBcc={setShowCcBcc}
+						subject={subject} setSubject={setSubject}
+					/>
 
 					<div className="border border-white/[0.07] rounded-xl overflow-hidden bg-[#111111]">
 						<RichTextEditor
@@ -248,7 +178,7 @@ export default function ComposePanel() {
 
 				{/* Footer actions */}
 				<div className="mt-auto px-6 py-3.5 border-t border-white/[0.06] bg-[#0d0d0d] shrink-0 md:px-8">
-					<div className="flex items-center justify-between">
+					<div className="flex flex-wrap items-center justify-between gap-3">
 						<Button
 							type="button"
 							variant="ghost"

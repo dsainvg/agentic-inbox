@@ -27,8 +27,8 @@ export function useMailbox(mailboxId: string | undefined) {
 export function useCreateMailbox() {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: ({ email, name }: { email: string; name: string }) =>
-			api.createMailbox(email, name),
+		mutationFn: ({ email, name, forwardTo }: { email: string; name: string; forwardTo?: string }) =>
+			api.createMailbox(email, name, undefined, forwardTo),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: queryKeys.mailboxes.all });
 		},

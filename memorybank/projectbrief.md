@@ -1,19 +1,24 @@
 # Project Brief: Agentic Inbox
 
 ## Executive Summary
-**Agentic Inbox** is an open-source, self-hosted, full-featured email client powered by an embedded AI Agent. The entire stack runs serverlessly on Cloudflare infrastructure, using Cloudflare Workers, Durable Objects (with SQLite storage), R2 Object Storage, Cloudflare Email Routing, Cloudflare Email Service, Workers AI, and Cloudflare Access.
+**Agentic Inbox** is an open-source, self-hosted, full-featured email client with an embedded AI agent. The entire stack runs serverlessly on Cloudflare infrastructure: Cloudflare Workers, D1 (SQLite), Durable Objects, Workers AI, Email Routing, and Email Service. Authentication is session-based (JWT cookie + `SESSION_SECRET` secret), with no dependency on Cloudflare Access.
 
 ## Core Goals
-1. **Self-Hosted Email Infrastructure**: Provide an isolated, privacy-centric email solution where each mailbox operates in its own Durable Object with dedicated SQLite database storage and R2 blob storage.
-2. **Autonomous AI Assistance**: Provide an integrated AI Email Agent that automatically parses incoming emails, builds thread context, and prepares draft replies for human operator review.
-3. **External Agent Protocol (MCP)**: Expose a Model Context Protocol (MCP) server endpoint (`/mcp`) so external AI developer tools (Cursor, Claude Code, etc.) can query inboxes, search messages, and manage mailboxes seamlessly.
-4. **Zero-Server Management**: Leverage Cloudflare's serverless edge primitives (Workers, Durable Objects, Workers AI, R2) to eliminate traditional database server maintenance and infrastructure overhead.
+1. **Self-Hosted Email Infrastructure**: A privacy-centric email solution where all mailbox data lives in a single Cloudflare D1 database under the operator's own account.
+2. **Autonomous AI Assistance**: An integrated AI Email Agent that automatically parses incoming emails, builds thread context, applies owner-authored memory, and prepares draft replies for human review.
+3. **3H Behavioral Principles**: All agent actions are governed by non-overridable Helpful / Honest / Harmless principles (`workers/lib/agent-policy.ts`). These apply even when custom prompts, owner memory, or email content conflict with them.
+4. **Hierarchy & Group Memory**: Mailboxes can be organised into recursive groups. Owner-authored memory is attached at workspace, group, or mailbox scope and merged at inference time, giving the agent accurate and contextual guidance.
+5. **Scoped Automation Rules**: Rules can be scoped to the entire workspace, a group, or specific mailboxes, running automatically on inbound email.
+6. **External Agent Protocol (MCP)**: A Model Context Protocol endpoint (`/mcp`) lets external AI tools (Cursor, Claude Code, etc.) query inboxes using a mailbox-scoped API key.
+7. **Zero-Server Management**: Cloudflare Workers, D1, Durable Objects, and Workers AI eliminate traditional server and database maintenance overhead.
 
 ## Scope & Architectural Boundaries
-- **Multi-Tenant / Per-Mailbox Isolation**: Each email address (e.g. `user@example.com`) maps to a separate Durable Object instance (`MailboxDO`), keeping mailbox data strictly isolated.
-- **Human-in-the-Loop Safeguards**: The AI agent is restricted to *drafting* emails. The agent cannot directly transmit outbound emails to recipients. Outbound sending requires explicit user confirmation via the web app UI or API.
-- **Unified Authentication**: Cloudflare Access serves as the single perimeter security boundary. Passing the Access policy grants access to all mailboxes within the deployed Worker instance.
+- **Single D1 store**: All data — mailboxes, emails, users, hierarchy, memory, rules — resides in one D1 binding (`DB`). No R2 bucket or per-mailbox Durable Objects for storage.
+- **Single EmailAgent DO**: One `EmailAgent` Durable Object handles all WebSocket chat sessions and inbound-email draft generation. Mailbox context is passed per-request.
+- **Human-in-the-Loop Safeguards**: The AI agent may draft emails but cannot transmit them. Sending requires explicit user confirmation.
+- **Owner Account**: A single `admin` user is created on first run via `/setup`. The owner controls all hierarchy, memory, and automation settings. Independent owner-check middleware prevents API keys or outer session middleware from accessing hierarchy routes.
 
 ## Primary Stakeholders & Target Audience
 - Developers and power users seeking a self-hosted, private email client with agentic capabilities.
-- AI workflow engineers looking for a reference architecture for Cloudflare Agents SDK (`AIChatAgent`), Vercel AI SDK v6, Workers AI, and MCP server deployment.
+- AI workflow engineers looking for a reference architecture for the Cloudflare Agents SDK (`AIChatAgent`), Vercel AI SDK v6, Workers AI, and MCP server deployment.
+- Operators who want per-mailbox AI behaviour controlled by owner-authored memory rather than only by model defaults.

@@ -2,13 +2,13 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-export interface Env extends Cloudflare.Env {
+export interface Env extends Omit<Cloudflare.Env, "SMTP_HOST" | "SMTP_PORT" | "SMTP_USER" | "SMTP_PASS" | "EmailAgent"> {
 	DB: D1Database;
 	AI: Ai;
 	EmailAgent: DurableObjectNamespace;
 	POLICY_AUD?: string;
 	TEAM_DOMAIN?: string;
-	DOMAINS?: string;
+	DOMAINS: string;
 	EMAIL_ADDRESSES?: string[];
 	EMAIL?: SendEmail;
 	SMTP_HOST?: string;

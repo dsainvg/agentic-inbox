@@ -214,6 +214,10 @@ export default function HomeRoute() {
 					)}
 				</div>
 
+				<RouterLink to="/mailbox/all/settings" className="inline-flex mb-5 rounded-full border border-white/15 px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5">
+					Workspace settings · Groups, memory & rules
+				</RouterLink>
+
 				{/* All Mailboxes Combined Inbox Entry */}
 				<RouterLink
 					to="/mailbox/all/emails/all_mail"

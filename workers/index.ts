@@ -34,6 +34,8 @@ import {
 	handleMarkThreadRead,
 } from "./routes/reply-forward";
 import { stripHtmlToText, textToHtml } from "./lib/email-helpers";
+import { hierarchyApi } from "./routes/hierarchy";
+import { withOwnerMemory } from "./lib/hierarchy";
 
 
 
@@ -105,6 +107,9 @@ app.use(
 );
 
 app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
+
+// Owner-only workspace settings. The router enforces its own session boundary.
+app.route("/api/v1/settings", hierarchyApi);
 
 // -- Config ---------------------------------------------------------
 
@@ -526,9 +531,11 @@ Strict requirements:
 - Keep it concise: usually 2-6 short paragraphs.`;
 
 	try {
+		await ensureDbInitialized(c.env.DB);
+		const prompt = await withOwnerMemory(c.env.DB, mailboxId, systemPrompt);
 		const { text, model } = await runAiWithFallbacks(c.env.AI, {
 			messages: [
-				{ role: "system", content: systemPrompt },
+				{ role: "system", content: prompt },
 				{ role: "user", content: contextParts.join("\n\n") },
 			],
 			max_tokens: 1024,

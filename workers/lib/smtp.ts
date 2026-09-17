@@ -36,7 +36,7 @@ export async function sendSmtpEmail(options: SendSmtpOptions): Promise<{ message
 	const isTls = port === 465;
 	const socket = connect(
 		{ hostname: host, port },
-		isTls ? { secureTransport: "on" } : { secureTransport: "starttls" },
+		{ secureTransport: isTls ? "on" : "starttls", allowHalfOpen: false },
 	);
 
 	const writer = socket.writable.getWriter();

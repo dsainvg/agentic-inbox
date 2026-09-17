@@ -2,11 +2,14 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { McpAgent } from "agents/mcp";
+import { createMcpHandler } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import { z } from "zod";
+import { ensureDbInitialized } from "../db/init";
+import * as schema from "../db/schema";
 import {
-	toolListMailboxes,
 	toolListEmails,
 	toolGetEmail,
 	toolGetThread,
@@ -61,7 +64,19 @@ function mcpResult(result: Record<string, unknown>) {
  * `/mcp` endpoint and can list mailboxes, read/search emails,
  * draft replies, send messages, and manage folders.
  */
-export class EmailMCP extends McpAgent<Env> {
+export async function serveMcp(request: Request, env: Env, ctx: ExecutionContext, mailboxId: string) {
+	// One server and immutable mailbox scope per request; no shared auth state.
+	const mcp = new EmailMCP(env, mailboxId);
+	await mcp.init();
+	return createMcpHandler(mcp.server, {
+		route: "/mcp",
+		enableJsonResponse: true,
+	})(request, env, ctx);
+}
+
+class EmailMCP {
+	constructor(private env: Env, private mailboxId: string) {}
+
 	server = new McpServer({
 		name: "agentic-inbox",
 		version: "1.0.0",
@@ -71,15 +86,28 @@ export class EmailMCP extends McpAgent<Env> {
 		const env = this.env;
 
 		/**
-		 * Verify a mailbox exists in R2 before operating on it.
+		 * Verify a mailbox exists in D1 before operating on it.
 		 * Returns an MCP error response if the mailbox is not found, or null if valid.
 		 */
 		const verifyMailbox = async (mailboxId: string) => {
-			const obj = await env.BUCKET.head(`mailboxes/${mailboxId}.json`);
-			if (!obj) {
-				return mcpError(`Mailbox "${mailboxId}" not found. Use list_mailboxes to see available mailboxes.`);
+			if (mailboxId.trim().toLowerCase() !== this.mailboxId) {
+				return mcpError("This API key cannot access that mailbox.");
 			}
-			return null;
+			try {
+				await ensureDbInitialized(env.DB);
+				const db = drizzle(env.DB, { schema });
+				const rows = await db
+					.select({ id: schema.mailboxes.id })
+					.from(schema.mailboxes)
+					.where(eq(schema.mailboxes.id, mailboxId.toLowerCase()))
+					.limit(1);
+				if (rows.length === 0) {
+					return mcpError(`Mailbox "${mailboxId}" not found. Use list_mailboxes to see available mailboxes.`);
+				}
+				return null;
+			} catch (e) {
+				return mcpError(`Mailbox check failed: ${(e as Error).message}`);
+			}
 		};
 
 		// ── list_mailboxes ─────────────────────────────────────────
@@ -88,7 +116,9 @@ export class EmailMCP extends McpAgent<Env> {
 			"List all available mailboxes",
 			{},
 			async () => {
-				const result = await toolListMailboxes(env);
+				await ensureDbInitialized(env.DB);
+				const result = await drizzle(env.DB).select({ id: schema.mailboxes.id, email: schema.mailboxes.email })
+					.from(schema.mailboxes).where(eq(schema.mailboxes.id, this.mailboxId));
 				return mcpText(result);
 			},
 		);

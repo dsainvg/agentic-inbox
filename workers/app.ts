@@ -6,7 +6,10 @@ import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { jwtVerify } from "jose";
 import { createRequestHandler } from "react-router";
+import { routeAgentRequest } from "agents";
 import { app as apiApp, receiveEmail, type InboundEmailEvent } from "./index";
+import { serveMcp } from "./mcp/index";
+import { validateApiKey } from "./lib/api-keys";
 import type { Env } from "./types";
 
 declare module "react-router" {
@@ -63,6 +66,45 @@ app.use("/api/v1/*", async (c, next) => {
 // Mount the API routes
 app.route("/", apiApp);
 
+// Agents (EmailAgent Durable Object): WebSocket + HTTP entry points.
+// MUST be handled before the React Router catch-all — otherwise the SPA's
+// index.html (HTTP 200) is returned and WebSocket handshakes fail.
+app.all("/agents/*", async (c) => {
+	const origin = c.req.header("origin");
+	if (origin && origin !== new URL(c.req.url).origin) {
+		return c.json({ error: "Forbidden origin" }, 403);
+	}
+	const cookie = getCookie(c, "session");
+	if (!cookie || !c.env.SESSION_SECRET) {
+		return c.json({ error: "Unauthorized" }, 401);
+	}
+	try {
+		await jwtVerify(cookie, new TextEncoder().encode(c.env.SESSION_SECRET));
+	} catch {
+		return c.json({ error: "Unauthorized" }, 401);
+	}
+	// Only expose the chat agent here, not the separately authenticated MCP DO.
+	const res = await routeAgentRequest(c.req.raw, { EmailAgent: c.env.EmailAgent });
+	return res ?? c.json({ error: "Agent route not found" }, 404);
+});
+
+// Stateless MCP: validate a mailbox-scoped key on every request. Keys are
+// headers only so they do not leak through URLs, browser history or logs.
+app.all("/mcp", async (c) => {
+	const origin = c.req.header("origin");
+	if (origin && origin !== new URL(c.req.url).origin) {
+		return c.json({ error: "Forbidden origin" }, 403);
+	}
+	const authHeader = c.req.header("authorization") || "";
+	const bearerKey = authHeader.toLowerCase().startsWith("bearer ")
+		? authHeader.substring(7).trim() : undefined;
+	const apiKey = c.req.header("x-api-key") || bearerKey;
+	if (!apiKey) return c.json({ error: "Provide a mailbox API key using Authorization: Bearer or X-API-Key." }, 401);
+	const validated = await validateApiKey(c.env, apiKey);
+	if (!validated) return c.json({ error: "Invalid API Key" }, 401);
+	return serveMcp(c.req.raw, c.env, c.executionCtx as ExecutionContext, validated.mailboxId.toLowerCase());
+});
+
 // React Router catch-all: serves the SPA index.html for all non-API routes
 app.all("*", (c) => {
 	return requestHandler(c.req.raw, {
@@ -70,7 +112,7 @@ app.all("*", (c) => {
 	});
 });
 
-// Export EmailAgent Durable Object class
+// Export the chat Durable Object. MCP is request-scoped.
 export { EmailAgent } from "./agent/index";
 
 // Export the Hono app as default export with email trigger handler

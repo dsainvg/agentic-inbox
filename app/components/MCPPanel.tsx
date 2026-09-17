@@ -46,7 +46,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 const TOOLS = [
-	{ name: "list_mailboxes", desc: "List all mailboxes" },
+	{ name: "list_mailboxes", desc: "List authorized mailboxes" },
 	{ name: "list_emails", desc: "List emails in a folder" },
 	{ name: "get_email", desc: "Read a full email with body" },
 	{ name: "get_thread", desc: "Load a conversation thread" },
@@ -108,6 +108,21 @@ export default function MCPPanel() {
 							{mcpUrl}
 						</div>
 					</div>
+				</div>
+
+				<div className="space-y-2 text-xs text-kumo-subtle leading-relaxed">
+					<h4 className="font-semibold text-kumo-default">Authentication & approval</h4>
+					<p>
+						Create an API key in Settings for {mailboxId || "the mailbox"}.
+						Keys are scoped per-mailbox; use that mailbox’s key in your external MCP client.
+					</p>
+					<p>Configure either header (replace the placeholder with your key):</p>
+					<pre className="whitespace-pre-wrap break-all rounded-lg border border-kumo-line bg-kumo-recessed p-3 text-kumo-default">{"Authorization: Bearer <API_KEY>\n\nOr:\nX-API-Key: <API_KEY>"}</pre>
+					<p>
+						Sending email requires your explicit approval in the external client.
+						Require confirmation for send_email and send_reply; review recipients and
+						message content before approving. Do not enable automatic approval for sending.
+					</p>
 				</div>
 
 				{/* Available tools */}

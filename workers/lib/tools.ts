@@ -27,26 +27,20 @@ import {
 	buildThreadingHeaders,
 } from "./email-helpers";
 import { verifyDraft } from "./ai";
-import { sendEmail } from "../email-sender";
+import { sendSmtpEmail } from "./smtp";
+import { replySubject } from "./email-helpers";
 import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
 
-// ── Type casts for DO methods not on the base stub type ────────────
-type MailboxSearchStub = {
-	searchEmails: (options: {
-		query: string;
-		folder?: string;
-	}) => Promise<unknown>;
-};
-
-type RateLimitStub = {
-	checkSendRateLimit: () => Promise<string | null>;
-};
+function smtpConfigurationError(env: Env): string | null {
+	return env.SMTP_USER?.trim() && env.SMTP_PASS?.trim()
+		? null : "SMTP_USER and SMTP_PASS are required for sending. No email was sent.";
+}
 
 // ── list_mailboxes ─────────────────────────────────────────────────
 
 export async function toolListMailboxes(env: Env) {
-	return listMailboxes(env.BUCKET);
+	return listMailboxes(env.DB);
 }
 
 // ── list_emails ────────────────────────────────────────────────────
@@ -98,7 +92,7 @@ export async function toolSearchEmails(
 	params: { query: string; folder?: string },
 ) {
 	const stub = getMailboxStub(env, mailboxId);
-	return (stub as unknown as MailboxSearchStub).searchEmails({
+	return stub.searchEmails({
 		query: params.query,
 		folder: params.folder,
 	});
@@ -150,9 +144,11 @@ export async function toolDraftReply(
 
 	const draftId = crypto.randomUUID();
 
-	// Get the original email for thread_id and quoted text
-	const original = (await stub.getEmail(params.originalEmailId)) as EmailFull | null;
-	const threadId = original?.thread_id || params.originalEmailId;
+	// Resolve only within this mailbox; never attach a draft to an unknown email.
+	const original = await stub.getEmail(params.originalEmailId);
+	if (!original) return { error: "Original email not found" };
+	const threadId = original.thread_id || original.id;
+	const subject = replySubject(params.subject || original.subject);
 
 	// Append quoted original message
 	const quotedBlock = original
@@ -168,7 +164,7 @@ export async function toolDraftReply(
 		Folders.DRAFT,
 		{
 			id: draftId,
-			subject: params.subject,
+			subject,
 			sender: mailboxId.toLowerCase(),
 			recipient: params.to.toLowerCase(),
 			date: new Date().toISOString(),
@@ -187,8 +183,9 @@ export async function toolDraftReply(
 		draft: {
 			originalEmailId: params.originalEmailId,
 			to: params.to,
-			subject: params.subject,
-			body: params.isPlainText ? params.body.trim() : bodyHtml,
+			subject,
+			body: bodyHtml,
+			threadId,
 		},
 	};
 }
@@ -230,15 +227,16 @@ export async function toolDraftEmail(
 
 	const draftId = crypto.randomUUID();
 
-	// Resolve thread ID
+	// Validate references against this mailbox, even when an explicit thread is given.
 	let resolvedThreadId = params.thread_id;
-	if (!resolvedThreadId && params.in_reply_to) {
-		const original = (await stub.getEmail(params.in_reply_to)) as EmailFull | null;
-		resolvedThreadId = original?.thread_id || params.in_reply_to;
+	if (params.in_reply_to) {
+		const original = await stub.getEmail(params.in_reply_to);
+		if (!original) return { error: "Original email not found" };
+		resolvedThreadId = original.thread_id || original.id;
+	} else if (resolvedThreadId && !(await stub.getThreadEmails(resolvedThreadId)).length) {
+		return { error: "Thread not found" };
 	}
-	if (!resolvedThreadId) {
-		resolvedThreadId = draftId;
-	}
+	resolvedThreadId ||= draftId;
 
 	await stub.createEmail(
 		Folders.DRAFT,
@@ -264,7 +262,7 @@ export async function toolDraftEmail(
 		draft: {
 			to: params.to,
 			subject: params.subject,
-			body: params.isPlainText ? params.body.trim() : processedBody,
+			body: processedBody,
 		},
 	};
 }
@@ -291,7 +289,11 @@ export async function toolUpdateDraft(
 		return { error: "Draft not found" };
 	}
 
-	// Verify the body BEFORE deleting the old draft to prevent data loss
+	if (oldDraft.folder_id !== Folders.DRAFT) {
+		return { error: "Cannot update: email is not a draft" };
+	}
+
+	// Verify before atomically replacing the existing draft.
 	const newDraftId = crypto.randomUUID();
 	const rawBody = params.bodyHtml ?? oldDraft.body ?? "";
 	const verifiedBody = await verifyDraft(env.AI, rawBody);
@@ -300,22 +302,18 @@ export async function toolUpdateDraft(
 		return { error: "Draft verification failed — keeping existing draft unchanged. Please try again." };
 	}
 
-	await stub.deleteEmail(params.draftId);
-	await stub.createEmail(
-		Folders.DRAFT,
-		{
-			id: newDraftId,
-			subject: params.subject ?? oldDraft.subject,
-			sender: mailboxId.toLowerCase(),
-			recipient: (params.to ?? oldDraft.recipient).toLowerCase(),
-			date: new Date().toISOString(),
-			body: verifiedBody,
-			in_reply_to: oldDraft.in_reply_to || null,
-			email_references: oldDraft.email_references || null,
-			thread_id: oldDraft.thread_id || newDraftId,
-		},
-		[],
-	);
+	const updated = await stub.replaceDraft(params.draftId, {
+		id: newDraftId,
+		subject: params.subject ?? oldDraft.subject,
+		sender: mailboxId.toLowerCase(),
+		recipient: (params.to ?? oldDraft.recipient).toLowerCase(),
+		date: new Date().toISOString(),
+		body: verifiedBody,
+		in_reply_to: oldDraft.in_reply_to || null,
+		email_references: oldDraft.email_references || null,
+		thread_id: oldDraft.thread_id || newDraftId,
+	});
+	if (!updated) return { error: "Draft not found or no longer a draft" };
 
 	return {
 		status: "draft_updated",
@@ -334,7 +332,7 @@ export async function toolMarkEmailRead(
 	read: boolean,
 ) {
 	const stub = getMailboxStub(env, mailboxId);
-	await stub.updateEmail(emailId, { read });
+	if (!await stub.updateEmail(emailId, { read })) return { error: "Email not found", emailId };
 	return { status: "updated", emailId, read };
 }
 
@@ -369,7 +367,9 @@ export async function toolDiscardDraft(
 	if (email.folder_id !== Folders.DRAFT) {
 		return { error: "Cannot discard: email is not a draft" };
 	}
-	await stub.deleteEmail(draftId);
+	if (!await stub.deleteEmail(draftId, Folders.DRAFT)) {
+		return { error: "Draft not found or no longer a draft" };
+	}
 	return { status: "discarded", draftId };
 }
 
@@ -400,26 +400,24 @@ export async function toolSendReply(
 		bodyHtml: string;
 	},
 ): Promise<
-	| { status: "sent"; messageId: string; message: string }
+	| { status: "sent"; messageId: string; message: string; warning?: string }
 	| { error: string }
 > {
 	const stub = getMailboxStub(env, mailboxId);
 
-	// Check send rate limit
-	const rateLimitError = await (stub as unknown as RateLimitStub).checkSendRateLimit();
-	if (rateLimitError) {
-		return { error: rateLimitError };
-	}
+	const configError = smtpConfigurationError(env);
+	if (configError) return { error: configError };
 
 	const originalEmail = (await stub.getEmail(params.originalEmailId)) as EmailFull | null;
 	if (!originalEmail) {
 		return { error: "Original email not found" };
 	}
 
+	const subject = replySubject(params.subject || originalEmail.subject);
 	const { originalMsgId, references, threadId } = buildReferencesChain(originalEmail);
 	const fromDomain = mailboxId.split("@")[1];
 	if (!fromDomain) throw new Error("Invalid mailbox email address");
-	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
+	const { messageId } = generateMessageId(fromDomain);
 
 	// Verify and append quoted original message
 	const sanitizedBody = await verifyDraft(env.AI, params.bodyHtml);
@@ -433,38 +431,52 @@ export async function toolSendReply(
 	});
 	const fullBodyHtml = sanitizedBody + quotedBlock;
 
+	let smtpMessageId: string;
 	try {
-		await sendEmail(env.EMAIL, {
+		const rateLimitError = await stub.checkSendRateLimit();
+		if (rateLimitError) return { error: rateLimitError };
+		const sent = await sendSmtpEmail({
+			host: env.SMTP_HOST, port: env.SMTP_PORT,
+			user: env.SMTP_USER, pass: env.SMTP_PASS,
 			to: params.to,
-			from: mailboxId,
-			subject: params.subject,
+			from: mailboxId.toLowerCase(),
+			replyTo: mailboxId.toLowerCase(),
+			subject,
 			html: fullBodyHtml,
 			headers: buildThreadingHeaders(originalMsgId, references),
 		});
+		smtpMessageId = sent.messageId;
 	} catch (e) {
 		console.error("Email send failed:", (e as Error).message);
 		return { error: `Failed to send reply: ${(e as Error).message}` };
 	}
 
-	await stub.createEmail(
-		Folders.SENT,
-		{
-			id: messageId,
-			subject: params.subject,
-			sender: mailboxId.toLowerCase(),
-			recipient: params.to.toLowerCase(),
-			date: new Date().toISOString(),
-			body: fullBodyHtml,
-			in_reply_to: originalMsgId,
-			email_references:
-				references.length > 0 ? JSON.stringify(references) : null,
-			thread_id: threadId,
-			message_id: outgoingMessageId,
-		},
-		[],
-	);
+	let sentRecordWarning: string | undefined;
+	try {
+		await stub.createEmail(
+			Folders.SENT,
+			{
+				id: messageId,
+				subject,
+				sender: mailboxId.toLowerCase(),
+				recipient: params.to.toLowerCase(),
+				date: new Date().toISOString(),
+				body: fullBodyHtml,
+				in_reply_to: originalMsgId,
+				email_references:
+					references.length > 0 ? JSON.stringify(references) : null,
+				thread_id: threadId,
+				message_id: smtpMessageId.replace(/^<|>$/g, ""),
+			},
+			[],
+		);
+	} catch (e) {
+		// The email WAS delivered; do not report an error that invites a duplicate send.
+		console.error("Failed to record sent reply in D1:", (e as Error).message);
+		sentRecordWarning = `Reply was delivered, but saving it to the Sent folder failed: ${(e as Error).message}`;
+	}
 
-	return { status: "sent", messageId, message: `Reply sent to ${params.to}` };
+	return { status: "sent", messageId, message: `Reply sent to ${params.to}`, ...(sentRecordWarning ? { warning: sentRecordWarning } : {}) };
 }
 
 // ── send_email ─────────────────────────────────────────────────────
@@ -478,54 +490,65 @@ export async function toolSendEmail(
 		bodyHtml: string;
 	},
 ): Promise<
-	| { status: "sent"; messageId: string; message: string }
+	| { status: "sent"; messageId: string; message: string; warning?: string }
 	| { error: string }
 > {
 	const stub = getMailboxStub(env, mailboxId);
 
-	// Check send rate limit
-	const rateLimitError = await (stub as unknown as RateLimitStub).checkSendRateLimit();
-	if (rateLimitError) {
-		return { error: rateLimitError };
-	}
+	const configError = smtpConfigurationError(env);
+	if (configError) return { error: configError };
 
 	const fromDomain = mailboxId.split("@")[1];
 	if (!fromDomain) throw new Error("Invalid mailbox email address");
-	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
+	const { messageId } = generateMessageId(fromDomain);
 
 	const sanitizedBody = await verifyDraft(env.AI, params.bodyHtml);
 	if (!sanitizedBody) {
 		return { error: "Draft verification failed — refusing to send unverified content. Please try again." };
 	}
 
+	let smtpMessageId: string;
 	try {
-		await sendEmail(env.EMAIL, {
+		const rateLimitError = await stub.checkSendRateLimit();
+		if (rateLimitError) return { error: rateLimitError };
+		const sent = await sendSmtpEmail({
+			host: env.SMTP_HOST, port: env.SMTP_PORT,
+			user: env.SMTP_USER, pass: env.SMTP_PASS,
 			to: params.to,
-			from: mailboxId,
+			from: mailboxId.toLowerCase(),
+			replyTo: mailboxId.toLowerCase(),
 			subject: params.subject,
 			html: sanitizedBody,
 		});
+		smtpMessageId = sent.messageId;
 	} catch (e) {
 		console.error("Email send failed:", (e as Error).message);
 		return { error: `Failed to send email: ${(e as Error).message}` };
 	}
 
-	await stub.createEmail(
-		Folders.SENT,
-		{
-			id: messageId,
-			subject: params.subject,
-			sender: mailboxId.toLowerCase(),
-			recipient: params.to.toLowerCase(),
-			date: new Date().toISOString(),
-			body: sanitizedBody,
-			in_reply_to: null,
-			email_references: null,
-			thread_id: messageId,
-			message_id: outgoingMessageId,
-		},
-		[],
-	);
+	let sentRecordWarning: string | undefined;
+	try {
+		await stub.createEmail(
+			Folders.SENT,
+			{
+				id: messageId,
+				subject: params.subject,
+				sender: mailboxId.toLowerCase(),
+				recipient: params.to.toLowerCase(),
+				date: new Date().toISOString(),
+				body: sanitizedBody,
+				in_reply_to: null,
+				email_references: null,
+				thread_id: messageId,
+				message_id: smtpMessageId.replace(/^<|>$/g, ""),
+			},
+			[],
+		);
+	} catch (e) {
+		// The email WAS delivered; do not report an error that invites a duplicate send.
+		console.error("Failed to record sent email in D1:", (e as Error).message);
+		sentRecordWarning = `Email was delivered, but saving it to the Sent folder failed: ${(e as Error).message}`;
+	}
 
-	return { status: "sent", messageId, message: `Email sent to ${params.to}` };
+	return { status: "sent", messageId, message: `Email sent to ${params.to}`, ...(sentRecordWarning ? { warning: sentRecordWarning } : {}) };
 }

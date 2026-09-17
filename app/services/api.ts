@@ -34,10 +34,11 @@ export class ApiError extends Error {
 
 async function request<T>(
 	url: string,
-	options: RequestInit = {},
+	options: RequestInit & { timeoutMs?: number } = {},
 ): Promise<T> {
+	const { timeoutMs = REQUEST_TIMEOUT_MS, ...init } = options;
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
 	// Combine caller signal (e.g. TanStack Query abort) with our timeout signal
 	const signal = options.signal
@@ -46,7 +47,7 @@ async function request<T>(
 
 	try {
 		const res = await fetch(url, {
-			...options,
+			...init,
 			signal,
 			headers: {
 				"Content-Type": "application/json",
@@ -63,9 +64,14 @@ async function request<T>(
 
 		const contentType = res.headers.get("content-type") ?? "";
 		if (contentType.includes("application/json")) {
-			return res.json() as Promise<T>;
+			return (await res.json()) as T;
 		}
-		return res.blob() as unknown as T;
+		return (await res.blob()) as unknown as T;
+	} catch (error) {
+		if (controller.signal.aborted && !options.signal?.aborted) {
+			throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds. Check your connection before trying again. Nothing was automatically resent.`);
+		}
+		throw error;
 	} finally {
 		clearTimeout(timeout);
 	}
@@ -80,10 +86,11 @@ function get<T>(url: string, opts?: { params?: Record<string, string>; responseT
 	});
 }
 
-function post<T>(url: string, body?: unknown, opts?: { signal?: AbortSignal }) {
+function post<T>(url: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number }) {
 	return request<T>(url, {
 		method: "POST",
 		signal: opts?.signal,
+		timeoutMs: opts?.timeoutMs,
 		body: body != null ? JSON.stringify(body) : undefined,
 	});
 }
@@ -115,8 +122,8 @@ const api = {
 
 	// Mailboxes
 	listMailboxes: () => get<Mailbox[]>("/api/v1/mailboxes"),
-	createMailbox: (email: string, name: string, settings?: unknown) =>
-		post<Mailbox>("/api/v1/mailboxes", { email, name, settings }),
+	createMailbox: (email: string, name: string, settings?: unknown, forwardTo?: string) =>
+		post<Mailbox>("/api/v1/mailboxes", { email, name, settings, forwardTo }),
 	getMailbox: (mailboxId: string) =>
 		get<Mailbox>(`/api/v1/mailboxes/${mailboxId}`),
 	updateMailbox: (mailboxId: string, data: { name?: string; forwardTo?: string; settings?: unknown }) =>
@@ -163,10 +170,25 @@ const api = {
 			`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/summarize`,
 			{ thread },
 		),
-	composeWithAi: (
+	composeWithAi: async (
 		mailboxId: string,
 		payload: { instructions?: string; subject?: string; existingBody?: string },
-	) => post<{ draft: string; model: string }>(`/api/v1/mailboxes/${mailboxId}/ai/draft`, payload),
+	): Promise<{ draft: string; model: string }> => {
+		const result = await post<unknown>(
+			`/api/v1/mailboxes/${mailboxId}/ai/draft`,
+			payload,
+			// Allow the server's 60s generation deadline plus transport overhead.
+			{ timeoutMs: 70_000 },
+		);
+		if (
+			!result || typeof result !== "object" ||
+			!("draft" in result) || typeof result.draft !== "string" || !result.draft.trim() ||
+			!("model" in result) || typeof result.model !== "string"
+		) {
+			throw new Error("AI returned an invalid or empty draft. Please try again.");
+		}
+		return { draft: result.draft, model: result.model };
+	},
 	forwardEmail: (mailboxId: string, emailId: string, email: unknown) =>
 		post<void>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/forward`, email),
 
