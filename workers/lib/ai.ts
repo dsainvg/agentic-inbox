@@ -17,7 +17,6 @@ export const CLOUDFLARE_AI_MODELS = {
 	PRIMARY: "@cf/nvidia/nemotron-3-120b-a12b",
 	FALLBACKS: [
 		"@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-		"@cf/meta/llama-3.1-8b-instruct",
 		"@cf/mistral/mistral-7b-instruct-v0.2",
 		"@cf/qwen/qwen1.5-7b-chat",
 	] as const,
