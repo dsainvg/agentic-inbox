@@ -44,6 +44,8 @@ export function useEmails(
 		},
 		enabled: !!mailboxId && (options?.enabled ?? true),
 		refetchInterval: options?.refetchInterval,
+		refetchIntervalInBackground: false,
+		refetchOnWindowFocus: "always",
 	});
 }
 
@@ -88,6 +90,9 @@ export function useThreadReplies(
 			return emails;
 		},
 		enabled: !!mailboxId && !!threadId,
+		refetchInterval: 30_000,
+		refetchIntervalInBackground: false,
+		refetchOnWindowFocus: "always",
 	});
 }
 
