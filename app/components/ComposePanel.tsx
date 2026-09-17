@@ -3,10 +3,17 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Banner, Button, Input } from "@cloudflare/kumo";
-import { FloppyDiskIcon, PaperPlaneTiltIcon, RobotIcon, XIcon } from "@phosphor-icons/react";
+import {
+	FloppyDiskIcon,
+	PaperPlaneTiltIcon,
+	SparkleIcon,
+	XIcon,
+} from "@phosphor-icons/react";
+import { useState } from "react";
 import { useParams } from "react-router";
 import { useComposeForm } from "~/hooks/useComposeForm";
-import { useUIStore } from "~/hooks/useUIStore";
+import { htmlToPlainText } from "~/lib/utils";
+import api from "~/services/api";
 import RichTextEditor from "./RichTextEditor";
 
 export default function ComposePanel() {
@@ -14,8 +21,6 @@ export default function ComposePanel() {
 		mailboxId: string;
 		folder: string;
 	}>();
-
-	const { isAgentPanelOpen, toggleAgentPanel } = useUIStore();
 
 	const {
 		to,
@@ -40,6 +45,36 @@ export default function ComposePanel() {
 		closePanel,
 	} = useComposeForm(mailboxId, folder);
 
+	// ── AI composer: generate email text directly into this draft ──
+	const [aiPanelOpen, setAiPanelOpen] = useState(false);
+	const [aiPrompt, setAiPrompt] = useState("");
+	const [aiDraft, setAiDraft] = useState<string | null>(null);
+	const [aiLoading, setAiLoading] = useState(false);
+	const [aiError, setAiError] = useState<string | null>(null);
+
+	const generateAiDraft = async () => {
+		if (!mailboxId || aiLoading) return;
+		setAiLoading(true);
+		setAiError(null);
+		try {
+			const res = await api.composeWithAi(mailboxId, {
+				instructions: aiPrompt,
+				subject,
+				existingBody: body,
+			});
+			setAiDraft(res.draft);
+		} catch (err) {
+			setAiError(err instanceof Error ? err.message : "AI generation failed. Try again.");
+		} finally {
+			setAiLoading(false);
+		}
+	};
+
+	const insertAiDraft = () => {
+		if (!aiDraft) return;
+		setBody(body && body.trim() ? `${body}<p><br></p>${aiDraft}` : aiDraft);
+	};
+
 	return (
 		<div className="flex flex-col h-full bg-[#0f0f0f]">
 			<div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5 border-b border-white/[0.06] shrink-0 md:px-8">
@@ -47,17 +82,16 @@ export default function ComposePanel() {
 					{formTitle}
 				</h2>
 				<div className="flex items-center gap-2 shrink-0">
-					<button
+					<Button
 						type="button"
-						onClick={toggleAgentPanel}
-						aria-expanded={isAgentPanelOpen}
-						aria-controls="ai-assistant-panel"
-						title="Open or close the assistant without changing your draft"
-						className="flex items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1.5 text-xs font-medium text-white/70 hover:bg-white/[0.06] hover:text-white focus-visible:outline-2 focus-visible:outline-white/60 transition-colors cursor-pointer"
+						variant="ghost"
+						size="sm"
+						icon={<SparkleIcon size={14} className={aiLoading ? "animate-pulse" : ""} />}
+						onClick={() => setAiPanelOpen((o) => !o)}
+						aria-expanded={aiPanelOpen}
 					>
-						<RobotIcon size={14} aria-hidden="true" />
-						AI assistant
-					</button>
+						Write with AI
+					</Button>
 					<Button
 						variant="ghost"
 						shape="square"
@@ -76,6 +110,56 @@ export default function ComposePanel() {
 			>
 				<div className="p-6 md:p-8 space-y-4">
 					{error && <div className="grayscale"><Banner variant="error" text={error} /></div>}
+
+					{aiPanelOpen && (
+						<div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
+							<div className="flex items-center gap-2">
+								<SparkleIcon size={14} className="text-white/60" />
+								<span className="text-xs font-medium text-white/80">Write with AI</span>
+							</div>
+							<textarea
+								aria-label="AI writing instructions"
+								value={aiPrompt}
+								onChange={(e) => setAiPrompt(e.target.value)}
+								rows={2}
+								maxLength={2000}
+								placeholder="Describe what to write — e.g. “polite follow-up asking the client to confirm the delivery date this week”…"
+								className="w-full text-xs p-2.5 rounded-lg border border-white/[0.08] bg-[#0c0c0c] text-white/90 placeholder:text-white/30 resize-y focus:outline-none focus:border-white/20"
+							/>
+							<div className="flex flex-wrap items-center gap-2">
+								<Button
+									type="button"
+									variant="secondary"
+									size="sm"
+									icon={<SparkleIcon size={14} />}
+									onClick={generateAiDraft}
+									loading={aiLoading}
+									disabled={aiLoading}
+								>
+									{aiLoading ? "Writing…" : aiDraft ? "Regenerate" : "Generate"}
+								</Button>
+								{aiDraft && !aiLoading && (
+									<>
+										<Button type="button" variant="secondary" size="sm" onClick={() => { setBody(aiDraft); setAiPanelOpen(false); }}>
+											Replace body
+										</Button>
+										<Button type="button" variant="ghost" size="sm" onClick={insertAiDraft}>
+											Insert at end
+										</Button>
+										<Button type="button" variant="ghost" size="sm" onClick={() => setAiDraft(null)}>
+											Dismiss
+										</Button>
+									</>
+								)}
+							</div>
+							{aiError && <p className="text-xs text-white/60">{aiError}</p>}
+							{aiDraft && !aiLoading && (
+								<div className="rounded-lg border border-white/[0.06] bg-[#0c0c0c] p-3 text-[13px] leading-relaxed text-white/80 whitespace-pre-wrap">
+									{htmlToPlainText(aiDraft)}
+								</div>
+							)}
+						</div>
+					)}
 
 					<div className="space-y-3">
 						<div className="flex items-center gap-2">

@@ -163,6 +163,10 @@ const api = {
 			`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/summarize`,
 			{ thread },
 		),
+	composeWithAi: (
+		mailboxId: string,
+		payload: { instructions?: string; subject?: string; existingBody?: string },
+	) => post<{ draft: string; model: string }>(`/api/v1/mailboxes/${mailboxId}/ai/draft`, payload),
 	forwardEmail: (mailboxId: string, emailId: string, email: unknown) =>
 		post<void>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/forward`, email),
 

@@ -33,7 +33,7 @@ import {
 	handleGetThread,
 	handleMarkThreadRead,
 } from "./routes/reply-forward";
-import { stripHtmlToText } from "./lib/email-helpers";
+import { stripHtmlToText, textToHtml } from "./lib/email-helpers";
 
 
 
@@ -476,6 +476,71 @@ app.delete("/api/v1/mailboxes/:mailboxId/api-keys/:keyId", async (c) => {
 	const success = await revokeApiKey(c.env, mailboxId, keyId);
 	if (!success) return c.json({ error: "API Key not found" }, 404);
 	return c.body(null, 204);
+});
+
+// -- AI compose: generate email body text for the composer ------------
+
+app.post("/api/v1/mailboxes/:mailboxId/ai/draft", async (c: AppContext) => {
+	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+
+	if (!c.env.AI) {
+		return c.json({ error: "Cloudflare Workers AI is not configured" }, 500);
+	}
+
+	const bodyParams = (await c.req.json().catch(() => ({}))) as {
+		instructions?: string;
+		subject?: string;
+		existingBody?: string;
+	};
+
+	const instructions = (bodyParams.instructions || "").trim().slice(0, 2000);
+	const subject = (bodyParams.subject || "").trim().slice(0, 300);
+	const existingText = bodyParams.existingBody
+		? stripHtmlToText(bodyParams.existingBody).trim().slice(0, 4000)
+		: "";
+
+	const contextParts: string[] = [];
+	if (subject) contextParts.push(`Subject line: ${subject}`);
+	if (existingText) {
+		contextParts.push(
+			`Current draft text (continue or revise this — do not simply repeat it):\n${existingText}`,
+		);
+	}
+	if (instructions) {
+		contextParts.push(`Writer instructions: ${instructions}`);
+	}
+
+	if (contextParts.length === 0) {
+		return c.json(
+			{ error: "Add instructions or a subject line so the AI knows what to write." },
+			400,
+		);
+	}
+
+	const systemPrompt = `You are a writing assistant composing the text of a real email on behalf of the user.
+Write like a real person: direct, warm, professional. Short paragraphs. No headings, no bullet lists unless asked, no markdown syntax, no placeholders like [Name].
+
+Strict requirements:
+- Output ONLY the email text itself. No preamble, no commentary, no "Here's a draft...", no subject line, no signature block.
+- Plain prose suitable for email. Preserve any specific details, names, dates, or links the instructions mention.
+- Keep it concise: usually 2-6 short paragraphs.`;
+
+	try {
+		const { text, model } = await runAiWithFallbacks(c.env.AI, {
+			messages: [
+				{ role: "system", content: systemPrompt },
+				{ role: "user", content: contextParts.join("\n\n") },
+			],
+			max_tokens: 1024,
+			temperature: 0.4,
+		});
+
+		const draft = textToHtml(text.trim());
+		return c.json({ draft, model });
+	} catch (e) {
+		console.error("AI compose failed:", (e as Error).message);
+		return c.json({ error: "AI generation failed across all models. Please try again." }, 502);
+	}
 });
 
 // -- External GET API (Authenticated via API Key - D1) --------------
