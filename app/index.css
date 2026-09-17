@@ -15,7 +15,7 @@ body {
 
 /* Custom selection highlight */
 ::selection {
-  background: rgba(99, 102, 241, 0.28);
+  background: rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.95);
 }
 
@@ -63,3 +63,41 @@ body {
   margin-top: 0.25em;
   margin-bottom: 0.25em;
 }
+
+/* Neutral tokens also cover library buttons, alerts, menus and toasts. */
+:root, html.dark {
+  --text-color-kumo-brand: #ededed;
+  --text-color-kumo-link: #dedede;
+  --text-color-kumo-success: #dedede;
+  --text-color-kumo-danger: #ededed;
+  --text-color-kumo-warning: #dedede;
+  --color-kumo-brand: #ededed;
+  --color-kumo-brand-hover: #cccccc;
+  --color-kumo-info: #bdbdbd;
+  --color-kumo-info-tint: #252525;
+  --color-kumo-warning: #bdbdbd;
+  --color-kumo-warning-tint: #252525;
+  --color-kumo-danger: #858585;
+  --color-kumo-danger-tint: #252525;
+  --color-kumo-success: #bdbdbd;
+  --color-kumo-success-tint: #252525;
+}
+
+/* Keep embedded message artwork and editor color previews monochrome too.
+   Apply to individual media, not the page: page filters break fixed panels. */
+img, iframe, video, .ProseMirror {
+  filter: grayscale(1);
+}
+
+:focus-visible {
+  outline: 2px solid #a3a3a3;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

@@ -14,6 +14,7 @@ import * as schema from "../db/schema";
 import type { Env } from "../types";
 import { sendSmtpEmail } from "./smtp";
 import { isPromptInjection, runAiWithFallbacks } from "./ai";
+import { replySubject } from "../../shared/email-subject";
 import { stripHtmlToText } from "./email-helpers";
 import {
 	parseAutomationActions,
@@ -163,9 +164,7 @@ async function sendAutoReply(
 		}
 	} catch {}
 
-	const subject = email.subject.toLowerCase().startsWith("re:")
-		? email.subject
-		: `Re: ${email.subject}`;
+	const subject = replySubject(email.subject);
 
 	const headers: Record<string, string> = {
 		"Auto-Submitted": "auto-replied", // RFC 3834: receivers must not auto-reply back
@@ -229,7 +228,7 @@ async function sendAutoReply(
 
 /**
  * Generate an AI-powered contextual auto-reply using Cloudflare Workers AI
- * free model (@cf/meta/llama-3.1-8b-instruct) and deliver it over SMTP,
+ * and deliver it over SMTP,
  * recording the outcome in the Sent folder.
  */
 async function sendAiReply(
@@ -285,9 +284,7 @@ async function sendAiReply(
 		}
 	} catch {}
 
-	const subject = email.subject.toLowerCase().startsWith("re:")
-		? email.subject
-		: `Re: ${email.subject}`;
+	const subject = replySubject(email.subject);
 
 	// Generate the AI reply text using Cloudflare Workers AI with fallback models
 	let generatedReply = "";

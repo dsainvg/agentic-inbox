@@ -2,11 +2,12 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Button, Input, Tooltip } from "@cloudflare/kumo";
+import { Tooltip } from "@cloudflare/kumo";
 import { GearSixIcon, ListIcon, MagnifyingGlassIcon, RobotIcon, XIcon } from "@phosphor-icons/react";
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useUIStore } from "~/hooks/useUIStore";
+import AgentSidebar from "./AgentSidebar";
 
 export default function Header() {
 	const [searchQuery, setSearchQuery] = useState("");
@@ -16,6 +17,11 @@ export default function Header() {
 	const location = useLocation();
 	const [searchParams] = useSearchParams();
 	const { toggleSidebar, toggleAgentPanel, isAgentPanelOpen } = useUIStore();
+
+	const [hasOpenedAssistant, setHasOpenedAssistant] = useState(false);
+	useEffect(() => {
+		if (isAgentPanelOpen) setHasOpenedAssistant(true);
+	}, [isAgentPanelOpen]);
 
 	// Sync search input with URL query param so it stays populated
 	const urlQuery = searchParams.get("q") || "";
@@ -69,11 +75,11 @@ export default function Header() {
 
 			{/* Search - full on desktop, collapsible on mobile */}
 			<div
-				className={`flex-1 max-w-xl transition-all flex items-center gap-1 ${
+				className={`flex-1 min-w-0 max-w-xl transition-all items-center gap-1 ${
 					isSearchExpanded ? "flex" : "hidden md:flex"
 				}`}
 			>
-				<div className="flex-1 relative flex items-center bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 h-8 gap-2 focus-within:border-white/20 focus-within:bg-white/[0.07] transition-all">
+				<div className="flex-1 min-w-0 relative flex items-center bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 h-8 gap-2 focus-within:border-white/20 focus-within:bg-white/[0.07] transition-all">
 					<MagnifyingGlassIcon size={14} className="text-white/30 shrink-0" />
 					<input
 						aria-label="Search emails"
@@ -81,7 +87,7 @@ export default function Header() {
 						value={searchQuery}
 						onChange={(e) => setSearchQuery(e.target.value)}
 						onKeyDown={handleKeyDown}
-						className="flex-1 bg-transparent text-[13px] text-white/90 placeholder:text-white/30 outline-none border-none"
+						className="flex-1 min-w-0 bg-transparent text-[13px] text-white/90 placeholder:text-white/30 outline-none border-none"
 					/>
 					{searchQuery && (
 						<button
@@ -108,7 +114,22 @@ export default function Header() {
 				</button>
 			)}
 
-			<div className="flex items-center gap-1 ml-auto shrink-0">
+			<div className="flex items-center gap-2 ml-auto shrink-0">
+				<button
+					type="button"
+					onClick={toggleAgentPanel}
+					aria-label="AI assistant"
+					aria-expanded={isAgentPanelOpen}
+					aria-controls="ai-assistant-panel"
+					className={`flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs font-medium transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-white/60 ${
+						isAgentPanelOpen
+							? "border-white/20 bg-white/10 text-white"
+							: "border-white/10 text-white/70 hover:bg-white/[0.06] hover:text-white"
+					}`}
+				>
+					<RobotIcon size={16} aria-hidden="true" />
+					AI assistant
+				</button>
 				<Tooltip content="Settings" side="bottom" asChild>
 					<button
 						type="button"
@@ -130,6 +151,20 @@ export default function Header() {
 					</button>
 				</Tooltip>
 			</div>
+			<aside
+				id="ai-assistant-panel"
+				aria-label="AI assistant"
+				hidden={!isAgentPanelOpen}
+				onKeyDown={(event) => {
+					if (event.key === "Escape") {
+						toggleAgentPanel();
+						document.querySelector<HTMLButtonElement>('button[aria-controls="ai-assistant-panel"]')?.focus();
+					}
+				}}
+				className="fixed right-0 top-12 bottom-0 z-30 w-full sm:w-96 border-l border-white/10 bg-[#0f0f0f] grayscale"
+			>
+				{(hasOpenedAssistant || isAgentPanelOpen) && <AgentSidebar key={mailboxId} />}
+			</aside>
 		</header>
 	);
 }

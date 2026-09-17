@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Badge, Button, Tooltip } from "@cloudflare/kumo";
+import { Button, Tooltip } from "@cloudflare/kumo";
 import {
 	ArrowsClockwiseIcon,
 	CheckIcon,
@@ -13,16 +13,6 @@ import {
 import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-
-function formatModelName(model?: string | null): string {
-	if (!model) return "Nemotron 3 120B (Free)";
-	if (model.includes("nemotron-3-120b")) return "Nemotron 3 120B (Free)";
-	if (model.includes("llama-3.3-70b")) return "Llama 3.3 70B (Free)";
-	if (model.includes("llama-3.1-8b")) return "Llama 3.1 8B (Free)";
-	if (model.includes("mistral-7b")) return "Mistral 7B (Free)";
-	if (model.includes("qwen")) return "Qwen 1.5 7B (Free)";
-	return model.replace(/^@cf\/[^/]+\//, "");
-}
 
 interface EmailSummaryCardProps {
 	summary: string | null;
@@ -38,7 +28,6 @@ interface EmailSummaryCardProps {
 
 export default function EmailSummaryCard({
 	summary,
-	model,
 	isLoading,
 	error,
 	isThreadSummarized = false,
@@ -61,32 +50,20 @@ export default function EmailSummaryCard({
 	};
 
 	return (
-		<div className="mx-5 my-3 md:mx-7 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4 text-xs shadow-lg transition-all">
-			<div className="flex items-center justify-between gap-2 pb-3 border-b border-white/[0.06]">
-				<div className="flex items-center gap-2 flex-wrap">
-					<div className="flex items-center gap-1.5 font-semibold text-white/80 text-[12px]">
-						<SparkleIcon size={14} weight="fill" className="text-amber-400 animate-pulse" />
-						<span>AI Summary</span>
+		<div className="mx-6 my-4 md:mx-8 rounded-lg border border-white/[0.08] bg-white/[0.02] p-4 text-xs">
+			<div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
+				<div className="flex items-center gap-3 flex-wrap">
+					<div className="flex items-center gap-2 font-medium text-white/80 text-xs">
+						<SparkleIcon size={14} className="text-white/60" />
+						<span>AI summary</span>
 					</div>
-					<Tooltip
-						content={
-							model
-								? `Generated with ${model} (automatic fallback enabled)`
-								: "Primary: Nemotron 3 120B with automatic free fallbacks"
-						}
-						side="bottom"
-						asChild
-					>
-						<Badge variant="secondary" className="cursor-help text-[10px] bg-white/[0.06] border-white/[0.1] text-white/50">
-							{formatModelName(model)}
-						</Badge>
-					</Tooltip>
 
 					{hasThread && onToggleThreadSummary && (
-						<div className="flex items-center rounded-lg border border-white/[0.08] bg-white/[0.03] p-0.5 ml-2">
+						<div className="flex items-center rounded-md border border-white/[0.08] bg-white/[0.03] p-0.5">
 							<button
 								type="button"
 								onClick={() => onToggleThreadSummary(false)}
+								aria-pressed={!isThreadSummarized}
 								className={`px-2.5 py-1 rounded-md text-[11px] transition-colors ${
 									!isThreadSummarized
 										? "bg-white/[0.08] font-medium text-white/80"
@@ -98,6 +75,7 @@ export default function EmailSummaryCard({
 							<button
 								type="button"
 								onClick={() => onToggleThreadSummary(true)}
+								aria-pressed={isThreadSummarized}
 								className={`px-2.5 py-1 rounded-md text-[11px] transition-colors ${
 									isThreadSummarized
 										? "bg-white/[0.08] font-medium text-white/80"
@@ -117,7 +95,7 @@ export default function EmailSummaryCard({
 								variant="ghost"
 								shape="square"
 								size="sm"
-								icon={copied ? <CheckIcon size={14} className="text-emerald-500" /> : <CopyIcon size={14} />}
+								icon={copied ? <CheckIcon size={14} className="text-white/80" /> : <CopyIcon size={14} />}
 								onClick={handleCopy}
 								aria-label="Copy summary"
 							/>
@@ -151,22 +129,22 @@ export default function EmailSummaryCard({
 				{isLoading ? (
 					<div className="space-y-2 py-1">
 						<div className="flex items-center gap-2 text-white/35">
-							<span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
-							<span>Summarizing with Cloudflare Workers AI...</span>
+							<span className="inline-block h-1.5 w-1.5 rounded-full bg-white/50 animate-pulse" />
+							<span role="status">Summarizing with AI…</span>
 						</div>
 						<div className="h-2 rounded-sm bg-white/[0.06] animate-pulse w-5/6" />
 						<div className="h-2 rounded-sm bg-white/[0.06] animate-pulse w-4/6" />
 						<div className="h-2 rounded-sm bg-white/[0.06] animate-pulse w-3/4" />
 					</div>
 				) : error ? (
-					<div className="flex items-center justify-between text-red-400/80 py-1 text-[12px]">
-						<span>{error}</span>
+					<div role="alert" className="flex items-center justify-between gap-3 text-white/70 py-1 text-xs">
+						<span>Unable to generate an AI summary. Please try again.</span>
 						<Button size="sm" variant="secondary" onClick={onRegenerate}>
 							Retry
 						</Button>
 					</div>
 				) : summary ? (
-					<div className="prose-xs max-w-none text-white/75 leading-relaxed text-[13px]">
+					<div className="max-w-none break-words text-white/75 leading-6 text-[13px]">
 						<Markdown
 							remarkPlugins={[remarkGfm]}
 							components={{

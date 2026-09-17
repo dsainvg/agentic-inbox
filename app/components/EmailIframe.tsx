@@ -138,7 +138,7 @@ body {
 [style*="position: fixed"], [style*="position:fixed"], [style*="position: absolute"], [style*="position:absolute"] {
 	position: relative !important;
 }
-a { color: ${isDark ? "#60a5fa" : "#2563eb"}; text-decoration: underline; text-underline-offset: 2px; }
+a { color: ${isDark ? "#e5e5e5" : "#333333"}; text-decoration: underline; text-underline-offset: 2px; }
 img { max-width: 100% !important; height: auto; }
 blockquote {
 	border-left: 2px solid ${isDark ? "rgba(255, 255, 255, 0.2)" : "#e5e7eb"};

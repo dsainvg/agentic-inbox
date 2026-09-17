@@ -44,7 +44,7 @@ function Avatar({ isDraft, isSelf, sender }: { isDraft?: boolean; isSelf: boolea
 				isDraft
 					? "bg-white/[0.06] text-white/30"
 					: isSelf
-						? "bg-blue-600 text-white"
+						? "bg-white/90 text-black"
 						: "bg-white/[0.08] text-white/70"
 			}`}
 		>
@@ -69,7 +69,7 @@ export default function ThreadMessage({
 	onPreviewImage,
 }: ThreadMessageProps) {
 	const isSelf = Boolean(mailboxEmail && email.sender === mailboxEmail);
-	const containerClassName = `${!isLast ? "border-b border-white/[0.05]" : ""} ${isDraft ? "border-l-2 border-l-amber-500/30 bg-amber-500/[0.02]" : ""}`;
+	const containerClassName = `${!isLast ? "border-b border-white/[0.05]" : ""} ${isDraft ? "border-l-2 border-l-white/30 bg-white/[0.03]" : ""}`;
 	const senderLabel = isDraft ? "Draft reply" : isSelf ? "You" : (email.sender || "Unknown");
 
 	if (!isExpanded) {
@@ -105,7 +105,7 @@ export default function ThreadMessage({
 							className="shrink-0"
 							aria-label="Collapse message"
 						>
-							<div className="cursor-pointer hover:ring-2 hover:ring-blue-500/30 transition-shadow rounded-full">
+							<div className="cursor-pointer hover:ring-2 hover:ring-white/40 transition-shadow rounded-full">
 								<Avatar isDraft={isDraft} isSelf={isSelf} sender={email.sender} />
 							</div>
 						</button>

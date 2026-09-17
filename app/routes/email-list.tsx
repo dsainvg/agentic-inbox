@@ -348,7 +348,7 @@ export default function EmailListRoute() {
 										{/* Unread dot */}
 										<div className="w-2 shrink-0 flex justify-center">
 											{hasUnread(email) && (
-												<div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+												<div className="h-1.5 w-1.5 rounded-full bg-white" />
 											)}
 										</div>
 
@@ -366,8 +366,8 @@ export default function EmailListRoute() {
 												weight={email.starred ? "fill" : "regular"}
 												className={
 													email.starred
-														? "text-amber-400"
-														: "text-white/20 hover:text-amber-400 transition-colors"
+														? "text-white/85"
+														: "text-white/20 hover:text-white/60 transition-colors"
 												}
 											/>
 										</button>
@@ -391,13 +391,13 @@ export default function EmailListRoute() {
 													</span>
 												)}
 												{email.has_draft && (
-													<span className="shrink-0 text-[11px] text-orange-400/80 font-medium">
+													<span className="shrink-0 text-[11px] text-white/50 font-medium">
 														Draft
 													</span>
 												)}
 												{email.needs_reply && !email.has_draft && (
 													<Tooltip content="Needs reply" asChild>
-														<span className="shrink-0 text-amber-500/70">
+														<span className="shrink-0 text-white/45">
 															<ArrowBendUpLeftIcon size={12} weight="bold" />
 														</span>
 													</Tooltip>

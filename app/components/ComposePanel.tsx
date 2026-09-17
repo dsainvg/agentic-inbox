@@ -3,9 +3,10 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Banner, Button, Input } from "@cloudflare/kumo";
-import { FloppyDiskIcon, PaperPlaneTiltIcon, XIcon } from "@phosphor-icons/react";
+import { FloppyDiskIcon, PaperPlaneTiltIcon, RobotIcon, XIcon } from "@phosphor-icons/react";
 import { useParams } from "react-router";
 import { useComposeForm } from "~/hooks/useComposeForm";
+import { useUIStore } from "~/hooks/useUIStore";
 import RichTextEditor from "./RichTextEditor";
 
 export default function ComposePanel() {
@@ -13,6 +14,8 @@ export default function ComposePanel() {
 		mailboxId: string;
 		folder: string;
 	}>();
+
+	const { isAgentPanelOpen, toggleAgentPanel } = useUIStore();
 
 	const {
 		to,
@@ -39,11 +42,22 @@ export default function ComposePanel() {
 
 	return (
 		<div className="flex flex-col h-full bg-[#0f0f0f]">
-			<div className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.06] shrink-0 md:px-8">
+			<div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5 border-b border-white/[0.06] shrink-0 md:px-8">
 				<h2 className="text-[15px] font-semibold text-white/90">
 					{formTitle}
 				</h2>
-				<div className="flex items-center gap-1">
+				<div className="flex items-center gap-2 shrink-0">
+					<button
+						type="button"
+						onClick={toggleAgentPanel}
+						aria-expanded={isAgentPanelOpen}
+						aria-controls="ai-assistant-panel"
+						title="Open or close the assistant without changing your draft"
+						className="flex items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1.5 text-xs font-medium text-white/70 hover:bg-white/[0.06] hover:text-white focus-visible:outline-2 focus-visible:outline-white/60 transition-colors cursor-pointer"
+					>
+						<RobotIcon size={14} aria-hidden="true" />
+						AI assistant
+					</button>
 					<Button
 						variant="ghost"
 						shape="square"
@@ -61,7 +75,7 @@ export default function ComposePanel() {
 				className="flex flex-col flex-1 min-h-0 overflow-y-auto"
 			>
 				<div className="p-6 md:p-8 space-y-4">
-					{error && <Banner variant="error" text={error} />}
+					{error && <div className="grayscale"><Banner variant="error" text={error} /></div>}
 
 					<div className="space-y-3">
 						<div className="flex items-center gap-2">
@@ -176,6 +190,7 @@ export default function ComposePanel() {
 							<Button
 								type="submit"
 								variant="primary"
+								className="grayscale"
 								size="sm"
 								loading={isSending}
 								disabled={isSavingDraft || isSending}

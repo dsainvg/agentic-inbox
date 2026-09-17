@@ -314,7 +314,7 @@ export default function Sidebar() {
 											<PencilSimpleIcon size={13} />
 										</button>
 										<button
-											className="p-1 rounded hover:bg-red-500/15 text-white/40 hover:text-red-400 cursor-pointer transition-colors"
+											className="p-1 rounded hover:bg-white/[0.08] text-white/40 hover:text-white cursor-pointer transition-colors"
 											aria-label={`Delete folder ${folder.name}`}
 											title="Delete folder"
 											onClick={(e) => {

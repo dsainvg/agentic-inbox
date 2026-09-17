@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
+import { replySubject } from "shared/email-subject";
 import { useKumoToastManager } from "@cloudflare/kumo";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -53,6 +54,7 @@ const EMPTY_FIELDS: ComposeFormFields = {
 };
 
 function getPrefixedSubject(subject: string, prefix: "Re" | "Fwd") {
+	if (prefix === "Re") return replySubject(subject);
 	const expectedPrefix = `${prefix}: `;
 	return subject.startsWith(expectedPrefix)
 		? subject

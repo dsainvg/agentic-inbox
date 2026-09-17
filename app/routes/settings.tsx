@@ -361,7 +361,7 @@ export default function SettingsRoute() {
 	const sampleCurlKey = newlyCreatedKey || "ag_key_sample123456789";
 
 	return (
-		<div className="w-full h-full overflow-y-auto bg-[#0f0f0f]">
+		<div className="w-full h-full overflow-y-auto bg-[#0f0f0f] grayscale">
 			<div className="max-w-4xl mx-auto px-6 py-8 md:px-10 md:py-10">
 				<h1 className="text-[22px] font-bold text-white/95 mb-8 tracking-tight">Settings</h1>
 
@@ -459,21 +459,21 @@ export default function SettingsRoute() {
 
 					{/* Newly Created Key Alert */}
 					{newlyCreatedKey && (
-						<div className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+						<div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] p-4">
 							<div className="flex items-center justify-between">
-								<span className="text-xs font-semibold text-emerald-400">
+								<span className="text-xs font-semibold text-white/85">
 									New API Key Generated! Copy it now as it won't be shown again:
 								</span>
 								<Button
 									variant="ghost"
 									size="xs"
-									icon={copied ? <CheckIcon size={14} className="text-emerald-400" /> : <CopyIcon size={14} />}
+									icon={copied ? <CheckIcon size={14} className="text-white/85" /> : <CopyIcon size={14} />}
 									onClick={handleCopyKey}
 								>
 									{copied ? "Copied!" : "Copy Key"}
 								</Button>
 							</div>
-							<div className="mt-2 font-mono text-xs text-white/90 select-all bg-[#090909] p-2.5 rounded-lg border border-emerald-500/20 break-all">
+							<div className="mt-2 font-mono text-xs text-white/90 select-all bg-[#090909] p-2.5 rounded-lg border border-white/10 break-all">
 								{newlyCreatedKey}
 							</div>
 						</div>
@@ -503,7 +503,7 @@ export default function SettingsRoute() {
 										<Button
 											variant="ghost"
 											size="xs"
-											icon={<TrashIcon size={14} className="text-red-400" />}
+											icon={<TrashIcon size={14} className="text-white/70" />}
 											onClick={() => handleDeleteKey(key.id)}
 											loading={deleteApiKeyMutation.isPending}
 										>
@@ -729,11 +729,9 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 													<span className="text-xs text-white/90 font-medium">
 														Reply with AI
 													</span>
-													<span title="Nemotron 3 120B with automatic fallbacks: Llama 3.3 70B, Llama 3.1 8B, Mistral 7B, Qwen 1.5">
-														<Badge variant="secondary" className="bg-white/[0.08] text-white/80 border-white/[0.1] text-[11px]">
-															Nemotron 3 120B (Free) + Fallbacks
-														</Badge>
-													</span>
+													<Badge variant="secondary" className="bg-white/[0.06] text-white/60 border-white/[0.1] text-[11px]">
+														AI
+													</Badge>
 												</div>
 												<textarea
 													aria-label="AI reply guidance instructions"
@@ -766,7 +764,7 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 													/>
 												</div>
 												<p className="text-[11px] text-white/35">
-													Contextual AI reply generated via Cloudflare Workers AI. Sent once per thread per rule with anti-loop protection.
+													Contextual AI reply. Sent once per thread per rule with anti-loop protection.
 												</p>
 											</div>
 										)}
@@ -775,7 +773,7 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 											variant="ghost"
 											shape="square"
 											size="sm"
-											className="ml-auto text-white/40 hover:text-red-400"
+											className="ml-auto text-white/40 hover:text-white"
 											aria-label={`Remove action ${i + 1}`}
 											title="Remove action"
 											type="button"
@@ -868,7 +866,7 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 													size="sm"
 													aria-label={`Delete automation ${rule.matchValue}`}
 													title="Delete automation"
-													className="text-white/40 hover:text-red-400"
+													className="text-white/40 hover:text-white"
 													loading={deleteAutomationMutation.isPending}
 													onClick={() => handleDeleteAutomation(rule.id)}
 												>
@@ -896,7 +894,7 @@ curl -X GET "${currentOrigin}/api/v1/external/messages" \\
 					</div>
 					<form onSubmit={handleChangePassword} className="space-y-4 max-w-sm pt-1">
 						{passwordError && (
-							<div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3.5 py-2.5">
+							<div className="text-xs text-white/70 bg-white/[0.05] border border-white/10 rounded-xl px-3.5 py-2.5">
 								{passwordError}
 							</div>
 						)}

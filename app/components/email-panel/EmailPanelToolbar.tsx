@@ -136,7 +136,7 @@ export default function EmailPanelToolbar({
 							variant={isSummaryActive ? "secondary" : "ghost"}
 							shape="square"
 							size="sm"
-							icon={<SparkleIcon size={18} weight={isSummaryActive ? "fill" : "regular"} className="text-amber-500" />}
+							icon={<SparkleIcon size={18} weight={isSummaryActive ? "fill" : "regular"} className="text-white/80" />}
 							onClick={onSummarize}
 							loading={isSummarizing}
 							aria-label="Summarize with AI"

@@ -30,7 +30,7 @@ function highlightTerms(text: string, query: string): React.ReactNode {
 		const lowerEscaped = escaped.toLowerCase();
 		return parts.map((part, i) =>
 			part.toLowerCase() === lowerEscaped ? (
-				<mark key={i} className="bg-amber-400/20 text-amber-200 rounded-sm px-0.5">
+				<mark key={i} className="bg-white/15 text-white rounded-sm px-0.5">
 					{part}
 				</mark>
 			) : (
@@ -166,7 +166,7 @@ export default function SearchResultsRoute() {
 										} ${isSelected ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"}`}
 									>
 										<div className="w-2.5 shrink-0 flex justify-center">
-											{!email.read && <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />}
+											{!email.read && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
 										</div>
 										<div className="min-w-0 flex-1">
 											<div className="flex items-center gap-2">

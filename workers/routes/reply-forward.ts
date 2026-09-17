@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
+import { replySubject } from "../../shared/email-subject";
 import type { Context } from "hono";
 import { drizzle } from "drizzle-orm/d1";
 import { eq, and, asc } from "drizzle-orm";
@@ -181,7 +182,7 @@ export async function handleReplyEmail(c: AppContext) {
 				cc: ccStr || undefined,
 				bcc: bccStr || undefined,
 				replyTo: mailboxId,
-				subject: subject || `Re: ${origEmail?.subject || ""}`,
+				subject: subject || replySubject(origEmail?.subject),
 				html: html || undefined,
 				text: text || undefined,
 				headers,
@@ -200,7 +201,7 @@ export async function handleReplyEmail(c: AppContext) {
 		id: messageId,
 		mailbox_id: mailboxId,
 		folder_id: Folders.SENT,
-		subject: subject || `Re: ${origEmail?.subject || ""}`,
+		subject: subject || replySubject(origEmail?.subject),
 		sender: fromFormatted,
 		recipient: recipientStr,
 		cc: ccStr || null,

@@ -10,10 +10,10 @@ interface EmailPanelHeaderProps {
 
 export default function EmailPanelHeader({ subject, messageCount, showThreadCount }: EmailPanelHeaderProps) {
   return (
-    <div className="px-6 pt-5 pb-4 md:px-8 border-b border-white/[0.05] shrink-0">
-      <h2 className="text-[16px] font-semibold text-white/95 leading-snug tracking-tight">{subject || "(no subject)"}</h2>
+    <div className="px-6 py-5 md:px-8 border-b border-white/[0.06] shrink-0">
+      <h2 className="text-base font-medium text-white/90 leading-relaxed tracking-tight break-words">{subject || "(no subject)"}</h2>
       {showThreadCount && (
-        <p className="text-[12px] text-white/35 mt-1">{messageCount} messages in thread</p>
+        <p className="text-xs text-white/50 mt-1.5">{messageCount} {messageCount === 1 ? "message" : "messages"} in thread</p>
       )}
     </div>
   );
