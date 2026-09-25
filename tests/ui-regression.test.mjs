@@ -62,6 +62,19 @@ test("assistant entry is unique and settings retain separate pages and scope gua
   assert.match(hierarchy, /descendants\.has\(g\.id\)/);
 });
 
+test("folder creation targets a concrete mailbox and reports failures", () => {
+  const sidebar = source("components/Sidebar.tsx");
+  assert.match(sidebar, /useMailbox\(mailboxId === "all" \? undefined : mailboxId\)/);
+  assert.match(sidebar, /const folderMailboxId = mailboxId === "all" \? undefined : currentMailbox\?\.id;/);
+  assert.match(sidebar, /await createFolderMutation\.mutateAsync/);
+  assert.match(sidebar, /title: "Failed to create folder"/);
+  assert.match(sidebar, /maxLength=\{64\}/);
+  assert.match(sidebar, /loading=\{createFolderMutation\.isPending\}/);
+  assert.match(sidebar, /\{folderMailboxId && customFolders\.length/);
+  const api = source("services/api.ts");
+  assert.match(api, /mailboxes\/\$\{encodeURIComponent\(mailboxId\)\}\/folders/);
+});
+
 test("memory reload locks edits, saves and scope navigation without dropping edits on failure", () => {
   const hierarchy = source("components/HierarchySettings.tsx");
   assert.match(hierarchy, /disabled=\{mutation\.isPending \|\| reloading\}/);

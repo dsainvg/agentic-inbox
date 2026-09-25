@@ -39,6 +39,53 @@ async function migrateAutomationRules(db: D1Database) {
 	}
 }
 
+async function migrateFolders(db: D1Database) {
+	const columns = await db.prepare(`PRAGMA table_info(folders)`).all<{ name: string }>();
+	if (columns.results.some((column) => column.name === "mailbox_id")) return;
+
+	try {
+		await db.batch([
+			db.prepare(`ALTER TABLE folders RENAME TO folders_legacy`),
+			db.prepare(`
+				CREATE TABLE folders (
+					id TEXT PRIMARY KEY,
+					mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+					name TEXT NOT NULL,
+					is_deletable INTEGER NOT NULL DEFAULT 1
+				);
+			`),
+			db.prepare(`
+				WITH normalized AS (
+					SELECT
+						m.id AS mailbox_id,
+						CASE lower(trim(f.name))
+							WHEN 'inbox' THEN 'inbox'
+							WHEN 'sent' THEN 'sent'
+							WHEN 'draft' THEN 'draft'
+							WHEN 'drafts' THEN 'draft'
+							WHEN 'archive' THEN 'archive'
+							WHEN 'trash' THEN 'trash'
+							ELSE trim(f.name)
+						END AS name,
+						CASE
+							WHEN lower(trim(f.name)) IN ('inbox', 'sent', 'draft', 'drafts', 'archive', 'trash') THEN 0
+							ELSE COALESCE(f.is_deletable, 1)
+						END AS is_deletable
+					FROM mailboxes m
+					CROSS JOIN folders_legacy f
+				)
+				INSERT OR IGNORE INTO folders (id, mailbox_id, name, is_deletable)
+				SELECT mailbox_id || ':' || name, mailbox_id, name, is_deletable
+				FROM normalized;
+			`),
+			db.prepare(`DROP TABLE folders_legacy`),
+		]);
+	} catch (error) {
+		const current = await db.prepare(`PRAGMA table_info(folders)`).all<{ name: string }>();
+		if (!current.results.some((column) => column.name === "mailbox_id")) throw error;
+	}
+}
+
 async function initialize(db: D1Database) {
 	try {
 		await db.batch([
@@ -119,6 +166,7 @@ async function initialize(db: D1Database) {
 			`),
 		]);
 		await migrateAutomationRules(db);
+		await migrateFolders(db);
 		// Ensure standard system folders exist for all mailboxes
 		await db
 			.prepare(

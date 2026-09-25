@@ -44,6 +44,14 @@ async function execute(mailbox = 'a@example.com') {
   assert.equal(response.status, 200, await response.clone().text());
   return response.json();
 }
+async function folderRequest(mailboxId, method = 'GET', body) {
+  const response = await mf.dispatchFetch(`http://localhost/api/v1/mailboxes/${mailboxId}/folders`, {
+    method, headers: { cookie: `session=${owner}`, 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  return { status: response.status, body: text ? JSON.parse(text) : null };
+}
 
 before(async () => {
   const bundle = await build({ absWorkingDir: root, entryPoints: ['tests/hierarchy-worker.ts'],
@@ -84,6 +92,23 @@ test('index.ts mounts every settings endpoint with an independent owner boundary
   assert.equal((await request('/groups', 'GET', undefined, owner, { origin: 'http://localhost' })).status, 200);
 });
 
+
+test('folder creation is persisted for a concrete mailbox and rejected for all mailboxes', async () => {
+  const name = 'Client projects';
+  const created = await folderRequest('A%40Example.com', 'POST', { name });
+  assert.equal(created.status, 201, JSON.stringify(created));
+  assert.deepEqual(created.body, { id: name, name, unreadCount: 0 });
+  const row = await db.prepare('SELECT mailbox_id, name, is_deletable FROM folders WHERE id=?')
+    .bind(`a@example.com:${name}`).first();
+  assert.deepEqual(row, { mailbox_id: 'a@example.com', name, is_deletable: 1 });
+  const listed = await folderRequest('a%40example.com');
+  assert.equal(listed.status, 200);
+  assert.ok(listed.body.some(folder => folder.id === name));
+  assert.equal((await folderRequest('a%40example.com', 'POST', { name })).status, 409);
+  const aggregate = await folderRequest('all', 'POST', { name: 'Aggregate folder' });
+  assert.equal(aggregate.status, 400);
+  assert.equal(await db.prepare("SELECT count(*) AS n FROM folders WHERE mailbox_id='all'").first('n'), 0);
+});
 
 test('nested membership, memory precedence, revision conflicts and cleanup', async () => {
   const parent = await group('Parent');
@@ -169,11 +194,13 @@ test('scoped automation precedence: selected mailbox, deepest group, ancestor, a
   await ok(`/groups/${parent.id}`, 'DELETE', undefined, 204);
 });
 
-test('legacy D1 migration preserves owner-authored automation actions', async () => {
+test('legacy D1 migration preserves automation actions and scopes folders to mailboxes', async () => {
   const legacy = await mf.getD1Database('LEGACY');
   await legacy.batch([
     legacy.prepare('CREATE TABLE mailboxes(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,name TEXT NOT NULL,forward_to TEXT,settings TEXT,created_at TEXT NOT NULL)'),
     legacy.prepare("INSERT INTO mailboxes(id,email,name,created_at) VALUES('old@example.com','old@example.com','Old','2025-01-01')"),
+    legacy.prepare('CREATE TABLE folders(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,is_deletable INTEGER NOT NULL DEFAULT 1)'),
+    legacy.prepare("INSERT INTO folders(id,name,is_deletable) VALUES('inbox','Inbox',0),('client-work','Client work',1)"),
     legacy.prepare('CREATE TABLE automation_rules(id TEXT PRIMARY KEY,mailbox_id TEXT NOT NULL,match_field TEXT NOT NULL,match_value TEXT NOT NULL,target_folder TEXT,mark_read INTEGER,enabled INTEGER NOT NULL,created_at TEXT NOT NULL)'),
     legacy.prepare("INSERT INTO automation_rules VALUES('old-rule','old@example.com','subject','report','archive',1,1,'2025-01-01')"),
   ]);
@@ -181,5 +208,9 @@ test('legacy D1 migration preserves owner-authored automation actions', async ()
   const row = await legacy.prepare("SELECT * FROM automation_rules WHERE id='old-rule'").first();
   assert.deepEqual(JSON.parse(row.actions), [{ type: 'file', folder: 'archive' }, { type: 'mark_read' }]);
   assert.equal(row.match_value, 'report');
+  const folderColumns = await legacy.prepare('PRAGMA table_info(folders)').all();
+  assert.ok(folderColumns.results.some(column => column.name === 'mailbox_id'));
+  assert.deepEqual(await legacy.prepare('SELECT mailbox_id, name, is_deletable FROM folders WHERE name=?')
+    .bind('Client work').first(), { mailbox_id: 'old@example.com', name: 'Client work', is_deletable: 1 });
   assert.equal(await legacy.prepare('SELECT count(*) AS n FROM workspace_groups').first('n'), 0);
 });

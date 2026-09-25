@@ -1099,7 +1099,7 @@ app.post("/api/v1/mailboxes/:mailboxId/emails/:id/move", async (c: AppContext) =
 app.get("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
 	await ensureDbInitialized(c.env.DB);
 	const db = drizzle(c.env.DB, { schema });
-	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	const mailboxId = c.get("mailboxId");
 
 	if (mailboxId === "all") {
 		const unreadCounts = await db
@@ -1176,13 +1176,13 @@ function validateFolderName(raw: unknown): { name: string } | { error: string; s
 }
 
 app.post("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
-	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	const mailboxId = c.get("mailboxId");
 	if (mailboxId === "all") {
 		return c.json({ error: "Cannot create folders on the aggregated All Mailboxes view" }, 400);
 	}
 
-	const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
-	const validated = validateFolderName(body.name);
+	const body = (await c.req.json().catch(() => null)) as { name?: unknown } | null;
+	const validated = validateFolderName(body?.name);
 	if ("error" in validated) {
 		return c.json({ error: validated.error }, validated.status as any);
 	}
@@ -1211,7 +1211,7 @@ app.post("/api/v1/mailboxes/:mailboxId/folders", async (c: AppContext) => {
 });
 
 app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) => {
-	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	const mailboxId = c.get("mailboxId");
 	if (mailboxId === "all") {
 		return c.json({ error: "Cannot rename folders on the aggregated All Mailboxes view" }, 400);
 	}
@@ -1220,8 +1220,8 @@ app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) 
 		return c.json({ error: "System folders cannot be renamed" }, 400);
 	}
 
-	const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
-	const validated = validateFolderName(body.name);
+	const body = (await c.req.json().catch(() => null)) as { name?: unknown } | null;
+	const validated = validateFolderName(body?.name);
 	if ("error" in validated) {
 		return c.json({ error: validated.error }, validated.status as any);
 	}
@@ -1274,7 +1274,7 @@ app.put("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) 
 });
 
 app.delete("/api/v1/mailboxes/:mailboxId/folders/:folderId", async (c: AppContext) => {
-	const mailboxId = c.req.param("mailboxId")!.toLowerCase();
+	const mailboxId = c.get("mailboxId");
 	if (mailboxId === "all") {
 		return c.json({ error: "Cannot delete folders on the aggregated All Mailboxes view" }, 400);
 	}

@@ -37,7 +37,10 @@ const DEPS_TO_OPTIMIZE = [
 
 export default defineConfig({
   plugins: [
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    cloudflare({
+      viteEnvironment: { name: "ssr" },
+      remoteBindings: process.env.CF_REMOTE_BINDINGS === "true",
+    }),
     tailwindcss(),
     reactRouter(),
     tsconfigPaths(),

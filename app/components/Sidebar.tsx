@@ -100,7 +100,8 @@ export default function Sidebar() {
 	const deleteFolderMutation = useDeleteFolder();
 	const queryClient = useQueryClient();
 	const { startCompose, closeSidebar } = useUIStore();
-	const { data: currentMailbox } = useMailbox(mailboxId);
+	const { data: currentMailbox } = useMailbox(mailboxId === "all" ? undefined : mailboxId);
+	const folderMailboxId = mailboxId === "all" ? undefined : currentMailbox?.id;
 	const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
 	const [newFolderName, setNewFolderName] = useState("");
 
@@ -120,12 +121,22 @@ export default function Sidebar() {
 		return found?.unreadCount || 0;
 	};
 
-	const handleCreateFolder = (e: React.FormEvent) => {
+	const handleCreateFolder = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (newFolderName.trim() && mailboxId) {
-			createFolderMutation.mutate({ mailboxId, name: newFolderName.trim() });
+		const name = newFolderName.trim();
+		if (!name || !folderMailboxId) return;
+
+		try {
+			await createFolderMutation.mutateAsync({ mailboxId: folderMailboxId, name });
 			setNewFolderName("");
 			setIsCreateFolderOpen(false);
+			toastManager.add({ title: "Folder created", description: name });
+		} catch (error) {
+			toastManager.add({
+				title: "Failed to create folder",
+				description: error instanceof Error ? error.message : "Please try again.",
+				variant: "error",
+			});
 		}
 	};
 
@@ -273,7 +284,7 @@ export default function Sidebar() {
 				))}
 
 				{/* Custom folders */}
-				{customFolders.length > 0 && (
+				{folderMailboxId && customFolders.length > 0 && (
 					<div className="pt-5">
 						<div className="flex items-center justify-between px-3 mb-1">
 							<span className="text-[10px] uppercase tracking-widest text-white/25">
@@ -333,7 +344,7 @@ export default function Sidebar() {
 				)}
 
 				{/* Add folder button when no custom folders */}
-				{customFolders.length === 0 && (
+				{folderMailboxId && customFolders.length === 0 && (
 					<div className="pt-5">
 						<div className="flex items-center justify-between px-3 mb-1">
 							<span className="text-[10px] uppercase tracking-widest text-white/25">
@@ -369,6 +380,7 @@ export default function Sidebar() {
 							placeholder="e.g. Projects"
 							value={newFolderName}
 							onChange={(e) => setNewFolderName(e.target.value)}
+							maxLength={64}
 							required
 						/>
 						<div className="flex justify-end gap-2">
@@ -382,7 +394,8 @@ export default function Sidebar() {
 							<Button
 								type="submit"
 								variant="primary"
-								disabled={!newFolderName.trim()}
+								disabled={!newFolderName.trim() || !folderMailboxId}
+								loading={createFolderMutation.isPending}
 							>
 								Create
 							</Button>
