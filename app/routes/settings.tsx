@@ -24,146 +24,17 @@ import {
 	useDeleteAutomation,
 	useUpdateAutomation,
 } from "~/queries/automations";
-import { Folders as FOLDER_CONSTS, FOLDER_DISPLAY_NAMES, SYSTEM_FOLDER_IDS } from "shared/folders";
+import { Folders as FOLDER_CONSTS, SYSTEM_FOLDER_IDS, getFolderDisplayName } from "shared/folders";
 import type { AutomationMatchField } from "~/types";
 import type { AutomationAction } from "shared/automations";
 import api from "~/services/api";
 import HierarchySettings from "~/components/HierarchySettings";
+import OperationsSettings from "~/components/settings/OperationsSettings";
+import { SETTINGS_SECTIONS } from "~/components/settings/sections";
 
-// Placeholder shown in the textarea when no custom prompt is set.
-// The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
 const PROMPT_PLACEHOLDER = `You are an email assistant that helps manage this inbox. You read emails, draft replies, and help organize conversations.\n\nWrite like a real person. Short, direct, flowing prose. Plain text only.\n\n(Leave empty to use the full built-in default prompt)`;
 
-/** "from" -> "From" etc. for rule descriptions. */
-const matchFieldLabel = (f: string) => f.charAt(0).toUpperCase() + f.slice(1);
-
-const SETTINGS_SECTIONS = [
-	{ id: "general", label: "General" },
-	{ id: "api-keys", label: "API Keys" },
-	{ id: "groups", label: "Groups" },
-	{ id: "memory", label: "Memory" },
-	{ id: "automations", label: "Automations" },
-	{ id: "mailbox-rules", label: "Mailbox rules" },
-	{ id: "audit", label: "Audit log" },
-	{ id: "team", label: "Team" },
-	{ id: "reliability", label: "Reliability" },
-	{ id: "backup", label: "Backup" },
-] as const;
-
-/** Human-readable description of a rule action. */
-function describeAction(
-	action: AutomationAction,
-	folderDisplayName: (id: string) => string,
-): string {
-	switch (action.type) {
-		case "file":
-			return `File into "${folderDisplayName(action.folder)}"`;
-		case "mark_read":
-			return "Mark as read";
-		case "star":
-			return "Star the email";
-		case "auto_reply": {
-			const parts = ["Auto-reply to the sender"];
-			if (action.onSuccessFolder)
-				parts.push(`on success file into "${folderDisplayName(action.onSuccessFolder)}"`);
-			if (action.onFailureFolder)
-				parts.push(`on failure file into "${folderDisplayName(action.onFailureFolder)}"`);
-			return parts.join(", ");
-		}
-		case "ai_reply": {
-			const parts = ["Reply with AI"];
-			if (action.prompt?.trim())
-				parts.push(`instruction: "${action.prompt.trim()}"`);
-			if (action.onSuccessFolder)
-				parts.push(`on success file into "${folderDisplayName(action.onSuccessFolder)}"`);
-			if (action.onFailureFolder)
-				parts.push(`on failure file into "${folderDisplayName(action.onFailureFolder)}"`);
-			return parts.join(", ");
-		}
-		default:
-			return "Action";
-	}
-}
-
-interface FolderTargetSelectProps {
-	value?: string;
-	onChange: (folder: string | undefined) => void;
-	systemFolders: string[];
-	customFolders: { id: string; name: string }[];
-	allowEmpty?: boolean;
-	emptyLabel?: string;
-	ariaLabel: string;
-}
-
-/** Shared folder picker for action targets (system + custom folders). */
-function FolderTargetSelect({
-	value,
-	onChange,
-	systemFolders,
-	customFolders,
-	allowEmpty,
-	emptyLabel,
-	ariaLabel,
-}: FolderTargetSelectProps) {
-	return (
-		<Select
-			aria-label={ariaLabel}
-			value={value ?? ""}
-			onValueChange={(v) => onChange(v || undefined)}
-		>
-			{allowEmpty && <Select.Option value="">{emptyLabel ?? "(don't file)"}</Select.Option>}
-			{systemFolders.map((f) => (
-				<Select.Option key={f} value={f}>
-					{FOLDER_DISPLAY_NAMES[f] || f}
-				</Select.Option>
-			))}
-			{customFolders.map((f) => (
-				<Select.Option key={f.id} value={f.id}>
-					{f.name}
-				</Select.Option>
-			))}
-		</Select>
-	);
-}
-
-function OperationsSettings({ section, mailboxId }: { section: string; mailboxId?: string }) {
-	const [data, setData] = useState<unknown>(null);
-	const [passphrase, setPassphrase] = useState("");
-	const [message, setMessage] = useState("");
-	const [loading, setLoading] = useState(false);
-
-	useEffect(() => {
-		let active = true;
-		setMessage("");
-		if (section === "audit") {
-			api.getAuditEvents().then((result) => { if (active) setData(result.events); }).catch((error) => { if (active) setMessage(error instanceof Error ? error.message : "Unable to load audit events"); });
-		} else if (section === "team") {
-			api.getUsers().then((result) => { if (active) setData(result); }).catch((error) => { if (active) setMessage(error instanceof Error ? error.message : "Owner access is required"); });
-		} else if (section === "reliability" && mailboxId && mailboxId !== "all") {
-			api.getAutomationRuns(mailboxId).then((result) => { if (active) setData(result); }).catch((error) => { if (active) setMessage(error instanceof Error ? error.message : "Unable to load reliability data"); });
-		}
-		return () => { active = false; };
-	}, [section, mailboxId]);
-
-	const exportBackup = async () => {
-		if (passphrase.length < 12) { setMessage("Use a passphrase of at least 12 characters."); return; }
-		setLoading(true);
-		try {
-			const envelope = await api.exportBackup(passphrase);
-			const blob = new Blob([JSON.stringify(envelope)], { type: "application/json" });
-			const url = URL.createObjectURL(blob);
-			const anchor = document.createElement("a"); anchor.href = url; anchor.download = "agentic-inbox-backup.json"; anchor.click(); URL.revokeObjectURL(url);
-			setMessage("Encrypted backup downloaded.");
-		} catch (error) { setMessage(error instanceof Error ? error.message : "Backup failed"); } finally { setLoading(false); }
-	};
-
-	if (section === "backup") {
-		return <div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-4"><h2 className="text-white/90 text-lg">Encrypted backup</h2><p className="text-white/50 text-sm">Exports mailbox data without passwords, API keys, or owner memory. The passphrase is never stored.</p><Input label="Backup passphrase" type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} size="sm" /><Button variant="primary" onClick={exportBackup} disabled={loading}>{loading ? "Preparing..." : "Download encrypted backup"}</Button>{message && <p className="text-white/60 text-sm">{message}</p>}</div>;
-	}
-	if (message) return <div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 text-sm text-white/60">{message}</div>;
-	if (!data) return <div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 text-sm text-white/50">Loading...</div>;
-	return <div className="rounded-2xl border border-white/[0.07] bg-[#111111] p-6 space-y-3"><h2 className="text-white/90 text-lg">{section === "audit" ? "Audit log" : section === "team" ? "Team members" : "Automation reliability"}</h2><pre className="max-h-[480px] overflow-auto whitespace-pre-wrap text-xs text-white/60">{JSON.stringify(data, null, 2)}</pre></div>;
-}
+import { describeAction, FolderTargetSelect, matchFieldLabel } from "~/components/settings/automation-helpers";
 
 export default function SettingsRoute() {
 	const { mailboxId } = useParams<{ mailboxId: string }>();
@@ -223,7 +94,7 @@ function MailboxSettings() {
 		FOLDER_CONSTS.TRASH,
 	];
 
-	const folderDisplayName = (id: string) => FOLDER_DISPLAY_NAMES[id] || id;
+	const folderDisplayName = (id: string) => getFolderDisplayName(id);
 
 	const canAddAction = (type: AutomationAction["type"]) => {
 		if (draftActions.length >= 20) return false;

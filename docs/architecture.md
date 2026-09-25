@@ -25,6 +25,10 @@
 
 The Hono application is the top-level request handler. It applies session JWT middleware to API routes, routes WebSocket upgrade requests to the `EmailAgent` Durable Object, validates API keys for the MCP endpoint, and falls through to the React Router SSR handler for all other paths.
 
+### API route modules (`workers/routes/`)
+
+`workers/index.ts` owns shared middleware and core mailbox/email routes. Larger, independently authorized features are mounted as Hono routers: `hierarchy.ts` (owner settings), `audit.ts` (security log), `users.ts` (users, roles, invitations), `reply-forward.ts` (send/reply/forward/drafts), `backup.ts` (encrypted export/validation/restore), and `attachments.ts` (authorized R2/Appwrite download/release).
+
 ### Cloudflare D1 (`workers/db/`)
 
 One `DB` binding holds the entire application state. The schema is initialized automatically on first request via `ensureDbInitialized()`.
@@ -32,7 +36,7 @@ One `DB` binding holds the entire application state. The schema is initialized a
 | Table | Purpose |
 |---|---|
 | `mailboxes` | Mailbox records (id = email address, name, forward_to, settings JSON) |
-| `users` | Owner account (`id = 'admin'`, bcrypt password_hash) |
+| `users` | Owner/user identities (`id`, email, role, status, PBKDF2 password hash, session version) |
 | `emails` | All email messages (headers, body, thread_id, read/starred flags) |
 | `folders` | Per-mailbox folders (inbox, sent, draft, archive, trash) |
 | `api_keys` | Mailbox-scoped API keys (`ag_` prefix) |
@@ -54,7 +58,7 @@ At each inference call the agent:
 
 See [Agent & 3H Policy](./agent.md) for full details.
 
-### Inbound email handler (`workers/index.ts` — `receiveEmail`)
+### Inbound email handler (`workers/inbound/receive-email.ts`)
 
 Triggered by Cloudflare Email Routing on every inbound email:
 
@@ -67,6 +71,8 @@ Triggered by Cloudflare Email Routing on every inbound email:
 ### React SPA (`app/`)
 
 React 19 + React Router v7 application served via SSR from the Worker. State management with Zustand v5 and TanStack React Query v5. Rich-text editing via TipTap v3.
+
+Large UI domains follow the same subfolder pattern: settings helpers/panels live in `app/components/settings/`, hierarchy primitives live in `app/components/hierarchy/`, and hierarchy data access lives in `app/queries/hierarchy.ts`. Shared folder and date helpers are imported from `shared/` rather than duplicated in route components.
 
 ## Auth model
 

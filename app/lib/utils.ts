@@ -12,15 +12,6 @@ import DOMPurify from "dompurify";
 import { formatQuotedDate } from "shared/dates";
 import type { Attachment } from "~/types";
 
-export {
-	formatListDate,
-	formatDetailDate,
-	formatShortDate,
-} from "shared/dates";
-
-/** @deprecated Use `formatQuotedDate` from `shared/dates` directly. */
-export const formatComposeDate = formatQuotedDate;
-
 /**
  * Format a byte count as a human-readable file size.
  */
@@ -157,7 +148,7 @@ export function buildQuotedReplyBlock(
 	body: string,
 ): string {
 	if (!body) return "";
-	const formattedDate = formatComposeDate(dateStr);
+	const formattedDate = formatQuotedDate(dateStr);
 	
 	// HTML-escape sender to prevent <john@example.com> from disappearing as a tag
 	const escapedSender = escapeHtml(sender);
@@ -185,7 +176,7 @@ export function rewriteInlineImages(
 	let result = body;
 	for (const att of attachments) {
 		if (att.disposition === "inline" && att.content_id) {
-			const url = `/api/v1/mailboxes/${mailboxId}/emails/${emailId}/attachments/${att.id}`;
+			const url = getAttachmentUrl(mailboxId, emailId, att.id);
 			// Strip angle brackets from content_id if present
 			const cid = att.content_id.startsWith("<")
 				? att.content_id.slice(1, -1)

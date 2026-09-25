@@ -54,8 +54,9 @@ test("assistant entry is unique and settings retain separate pages and scope gua
   assert.match(source("routes.ts"), /settings\/:section\?/);
   const settings = source("routes/settings.tsx");
   assert.match(settings, /MailboxSettings key=\{mailboxId\}/);
+  const sections = source("components/settings/sections.ts");
   for (const section of ["api-keys", "automations", "groups", "memory"])
-    assert.ok(settings.includes(`id: "${section}"`));
+    assert.ok(sections.includes(`id: "${section}"`));
   const hierarchy = source("components/HierarchySettings.tsx");
   assert.match(hierarchy, /useBeforeUnload/);
   assert.match(hierarchy, /useBlocker/);

@@ -112,7 +112,7 @@ The current product already has mailbox isolation, full-text search, folders, AI
 
 **F10 — R2 attachment pipeline and safe previews**
 
-- Store attachment bytes in R2 and metadata in D1 instead of embedding payloads in email rows.
+- Store attachment bytes in R2 when available, with Appwrite Storage as a server-side fallback, and metadata in D1 instead of embedding payloads in email rows.
 - Enforce per-mailbox and per-message size limits plus MIME allowlists.
 - Quarantine unknown or unsafe types until an owner releases them.
 - Use short-lived, mailbox-scoped signed URLs; never expose an R2 bucket publicly.
@@ -161,7 +161,7 @@ Mark each item **Approve**, **Defer**, or **Modify** before implementation begin
 - [x] F7 — Server-side search facets, snippets, saved searches, and scoped citations
 - [x] F8 — Mailbox export, encrypted workspace backup, and decrypt/validate endpoint
 - [x] F9 — Automation run history and owner-only reliability data API
-- [x] F10 — Optional R2 binding, MIME/size policy, quarantine/manual release, and authorized download route
+- [x] F10 — Optional R2/Appwrite Storage, MIME/size policy, quarantine/manual release, and authorized download route
 - [x] F11 — Users, roles, invitations, mailbox permissions, aggregate blocking, and hashed API keys
 
 Remaining hardening work is tracked explicitly: malware scanner integration, owner recovery, MCP capability migration, full UI surfaces, and destructive restore semantics.

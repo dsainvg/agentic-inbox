@@ -13,7 +13,7 @@
 7. **Zero-Server Management**: Cloudflare Workers, D1, Durable Objects, and Workers AI eliminate traditional server and database maintenance overhead.
 
 ## Scope & Architectural Boundaries
-- **Single D1 store**: All data — mailboxes, emails, users, hierarchy, memory, rules — resides in one D1 binding (`DB`). No R2 bucket or per-mailbox Durable Objects for storage.
+- **Storage:** D1 stores mail and attachment metadata. Attachment bytes use R2 when bound, otherwise optional Appwrite Storage; without either, mail persists without attachment bytes.
 - **Single EmailAgent DO**: One `EmailAgent` Durable Object handles all WebSocket chat sessions and inbound-email draft generation. Mailbox context is passed per-request.
 - **Human-in-the-Loop Safeguards**: The AI agent may draft emails but cannot transmit them. Sending requires explicit user confirmation.
 - **Owner Account**: A single `admin` user is created on first run via `/setup`. The owner controls all hierarchy, memory, and automation settings. Independent owner-check middleware prevents API keys or outer session middleware from accessing hierarchy routes.

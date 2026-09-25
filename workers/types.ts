@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-export interface Env extends Omit<Cloudflare.Env, "SMTP_HOST" | "SMTP_PORT" | "SMTP_USER" | "SMTP_PASS" | "EmailAgent"> {
+export interface Env extends Omit<Cloudflare.Env, "SMTP_HOST" | "SMTP_PORT" | "SMTP_USER" | "SMTP_PASS" | "EmailAgent" | "ATTACHMENTS"> {
 	DB: D1Database;
 	AI: Ai;
 	EmailAgent: DurableObjectNamespace;
@@ -19,7 +19,11 @@ export interface Env extends Omit<Cloudflare.Env, "SMTP_HOST" | "SMTP_PORT" | "S
 	OPENROUTER_MODEL?: string;
 	OPENROUTER_BASE_URL?: string;
 	EXTERNAL_INTAKE_TOKEN?: string;
-	ATTACHMENTS: R2Bucket;
+	ATTACHMENTS?: R2Bucket;
+	APPWRITE_ENDPOINT?: string;
+	APPWRITE_PROJECT_ID?: string;
+	APPWRITE_API_KEY?: string;
+	APPWRITE_BUCKET_ID?: string;
 	ATTACHMENT_SCAN_ENDPOINT?: string;
 	ATTACHMENT_SCAN_TOKEN?: string;
 }

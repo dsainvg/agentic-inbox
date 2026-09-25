@@ -54,14 +54,14 @@
 
 ### Not used (removed from this fork)
 - `POLICY_AUD` / `TEAM_DOMAIN`: Cloudflare Access is not used; session auth replaces it.
-- `R2`: Attachments are stored inline in D1; no R2 bucket is required.
+- `R2 / Appwrite`: Attachments use R2 when the `ATTACHMENTS` binding exists, otherwise Appwrite Storage when configured; neither is required for normal mail storage.
 
 ## D1 Schema Tables
 
 | Table | Purpose |
 |---|---|
 | `mailboxes` | Mailbox records (id = email, name, forward_to, settings JSON) |
-| `users` | Owner account (`id = 'admin'`, bcrypt password_hash) |
+| `users` | User identities (`id`, email, role, status, PBKDF2 password hash, session version) |
 | `api_keys` | Mailbox-scoped API keys (`ag_` prefix) |
 | `folders` | Per-mailbox folders (inbox, sent, draft, archive, trash) |
 | `emails` | All email messages (headers, body, thread_id, flags) |

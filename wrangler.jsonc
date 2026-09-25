@@ -42,13 +42,6 @@
 	"triggers": {
 		"crons": ["* * * * *"]
 	},
-	"r2_buckets": [
-		{
-			"binding": "ATTACHMENTS",
-			"bucket_name": "agentic-inbox-attachments"
-		}
-	],
-
 	"routes": [
 		{
 			"pattern": "mail.dsainvg.dpdns.org",

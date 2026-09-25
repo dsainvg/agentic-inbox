@@ -71,6 +71,7 @@ export const attachments = sqliteTable("attachments", {
 	mime_type: text("mime_type").notNull(),
 	size: integer("size").notNull(),
 	r2_key: text("r2_key").notNull().unique(),
+	storage_backend: text("storage_backend").notNull().default("r2"),
 	content_id: text("content_id"),
 	disposition: text("disposition"),
 	scan_status: text("scan_status").notNull().default("pending"),

@@ -5,145 +5,16 @@ import { useBeforeUnload, useBlocker } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@cloudflare/kumo";
 import { useMailboxes } from "~/queries/mailboxes";
+import { hierarchyRequest, hierarchyRootKey } from "~/queries/hierarchy";
 import { ApiError } from "~/services/api";
 import type {
   AutomationAction,
   AutomationMatchField,
 } from "shared/automations";
-import { FOLDER_DISPLAY_NAMES, SYSTEM_FOLDER_IDS } from "shared/folders";
+import { SYSTEM_FOLDER_IDS, getFolderDisplayName } from "shared/folders";
+import { Choices, Feedback, groupPath, hint, input, memoryLimit, panel, type Choice, type Group, type Memory, type Rule } from "~/components/hierarchy/primitives";
 
-type Group = {
-  id: string;
-  name: string;
-  parentId: string | null;
-  mailboxIds: string[];
-};
-type Memory = {
-  scopeType: "all" | "group" | "mailbox";
-  scopeId: string;
-  content: string;
-  revision: number;
-};
-type Rule = {
-  id: string;
-  name: string;
-  scopeType: "all" | "group" | "mailboxes";
-  scopeIds: string[];
-  matchField: AutomationMatchField;
-  matchValue: string;
-  actions: AutomationAction[];
-  enabled: boolean;
-};
-type Choice = { id: string; name: string };
-const panel = "rounded-2xl border border-white/10 bg-[#111111] p-5 space-y-4";
-const input =
-  "w-full rounded-lg border border-white/15 bg-[#0c0c0c] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/40 disabled:opacity-50";
-const hint = "text-xs text-white/60 leading-relaxed";
-const rootKey = ["hierarchy-settings"] as const;
-const memoryLimit = 4000;
 
-async function request<T>(
-  path: string,
-  method = "GET",
-  body?: unknown,
-  signal?: AbortSignal,
-): Promise<T> {
-  const response = await fetch(`/api/v1/settings${path}`, {
-    method,
-    credentials: "same-origin",
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(30000)])
-      : AbortSignal.timeout(30000),
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!response.ok)
-    throw new ApiError(
-      response.status,
-      (await response.json().catch(() => ({}))) as Record<string, unknown>,
-    );
-  return response.status === 204 ? (undefined as T) : response.json();
-}
-function Feedback({
-  error,
-  saved,
-  pending,
-}: {
-  error?: Error | null;
-  saved?: boolean;
-  pending?: boolean;
-}) {
-  return (
-    <>
-      {error && (
-        <p
-          role="alert"
-          className="text-sm border border-white/30 rounded-lg p-3"
-        >
-          {error instanceof ApiError &&
-          error.status === 409 &&
-          error.body.memory
-            ? "Conflict: settings changed elsewhere. Your edits have been kept. Reload the latest version before saving again. "
-            : ""}
-          {error.message}
-        </p>
-      )}
-      <p role="status" className={hint}>
-        {pending ? "Saving…" : saved ? "Saved." : ""}
-      </p>
-    </>
-  );
-}
-function Choices({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: Choice[];
-  value: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  return (
-    <fieldset className="space-y-2">
-      <legend className="text-sm mb-2">{label}</legend>
-      <div className="max-h-48 overflow-auto rounded-lg border border-white/10 p-3 space-y-2">
-        {options.length === 0 && <p className={hint}>None available.</p>}
-        {options.map((item) => (
-          <label
-            key={item.id}
-            className="flex items-center gap-2 text-sm break-all"
-          >
-            <input
-              type="checkbox"
-              checked={value.includes(item.id)}
-              onChange={(e) =>
-                onChange(
-                  e.target.checked
-                    ? [...value, item.id]
-                    : value.filter((id) => id !== item.id),
-                )
-              }
-            />
-            {item.name}
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  );
-}
-function groupPath(group: Group, groups: Group[]): string {
-  const names = [group.name];
-  const seen = new Set([group.id]);
-  let parent = groups.find((g) => g.id === group.parentId);
-  while (parent && !seen.has(parent.id)) {
-    seen.add(parent.id);
-    names.unshift(parent.name);
-    parent = groups.find((g) => g.id === parent!.parentId);
-  }
-  return names.join(" / ");
-}
 export default function HierarchySettings({
   section,
   mailboxId,
@@ -152,9 +23,9 @@ export default function HierarchySettings({
   mailboxId?: string;
 }) {
   const groups = useQuery({
-    queryKey: [...rootKey, "groups"],
+    queryKey: [...hierarchyRootKey, "groups"],
     queryFn: ({ signal }) =>
-      request<{ groups: Group[] }>("/groups", "GET", undefined, signal),
+      hierarchyRequest<{ groups: Group[] }>("/groups", "GET", undefined, signal),
   });
   const mailboxes = useMailboxes();
   if (groups.isPending || mailboxes.isPending)
@@ -211,7 +82,7 @@ function GroupsEditor({
   const [draft, setDraft] = useState<Group>(empty);
   const mutation = useMutation({
     mutationFn: ({ group, remove }: { group: Group; remove?: boolean }) =>
-      request(
+      hierarchyRequest(
         `/groups${group.id ? `/${encodeURIComponent(group.id)}` : ""}`,
         remove ? "DELETE" : group.id ? "PUT" : "POST",
         remove
@@ -224,7 +95,7 @@ function GroupsEditor({
       ),
     onSuccess: async () => {
       setDraft(empty);
-      await qc.invalidateQueries({ queryKey: rootKey });
+      await qc.invalidateQueries({ queryKey: hierarchyRootKey });
     },
   });
   const descendants = new Set(draft.id ? [draft.id] : []);
@@ -508,11 +379,11 @@ function MemoryEditor({
   onSaving: (saving: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const key = [...rootKey, "memory", scopeType, scopeId];
+  const key = [...hierarchyRootKey, "memory", scopeType, scopeId];
   const query = useQuery({
     queryKey: key,
     queryFn: ({ signal }) =>
-      request<Memory>(
+      hierarchyRequest<Memory>(
         `/memory?${new URLSearchParams({ scopeType, scopeId })}`,
         "GET",
         undefined,
@@ -522,13 +393,13 @@ function MemoryEditor({
   const [draft, setDraft] = useState<Memory | null>(null);
   const [reloading, setReloading] = useState(false);
   const mutation = useMutation({
-    mutationFn: (memory: Memory) => request<Memory>("/memory", "PUT", memory),
+    mutationFn: (memory: Memory) => hierarchyRequest<Memory>("/memory", "PUT", memory),
     onMutate: () => onSaving(true),
     onSuccess: (memory) => {
       qc.setQueryData(key, memory);
       setDraft(null);
       onDirty(false);
-      void qc.invalidateQueries({ queryKey: [...rootKey, "effective"] });
+      void qc.invalidateQueries({ queryKey: [...hierarchyRootKey, "effective"] });
     },
     onSettled: () => onSaving(false),
   });
@@ -628,9 +499,9 @@ function EffectiveMemory({
   groups: Group[];
 }) {
   const query = useQuery({
-    queryKey: [...rootKey, "effective", mailboxId],
+    queryKey: [...hierarchyRootKey, "effective", mailboxId],
     queryFn: ({ signal }) =>
-      request<{ mailboxId: string; memories: Memory[]; prompt: string }>(
+      hierarchyRequest<{ mailboxId: string; memories: Memory[]; prompt: string }>(
         `/effective-memory/${encodeURIComponent(mailboxId)}`,
         "GET",
         undefined,
@@ -688,9 +559,9 @@ function SharedRules({
 }) {
   const qc = useQueryClient();
   const query = useQuery({
-    queryKey: [...rootKey, "automations"],
+    queryKey: [...hierarchyRootKey, "automations"],
     queryFn: ({ signal }) =>
-      request<{ automations: Rule[] }>(
+      hierarchyRequest<{ automations: Rule[] }>(
         "/automations",
         "GET",
         undefined,
@@ -710,7 +581,7 @@ function SharedRules({
   const [draft, setDraft] = useState<Rule>(empty);
   const mutation = useMutation({
     mutationFn: ({ rule, remove }: { rule: Rule; remove?: boolean }) =>
-      request(
+      hierarchyRequest(
         `/automations${rule.id ? `/${encodeURIComponent(rule.id)}` : ""}`,
         remove ? "DELETE" : rule.id ? "PUT" : "POST",
         remove
@@ -728,7 +599,7 @@ function SharedRules({
     onSuccess: async (_data, variables) => {
       if (!variables.remove) setDraft(empty());
       else if (draft.id === variables.rule.id) setDraft(empty());
-      await qc.invalidateQueries({ queryKey: rootKey });
+      await qc.invalidateQueries({ queryKey: hierarchyRootKey });
     },
   });
   const change = (next: Rule) => {
@@ -959,7 +830,7 @@ function SystemFolder({
         {optional && <option value="">Leave in current folder</option>}
         {SYSTEM_FOLDER_IDS.filter((id) => id !== "all_mail").map((id) => (
           <option key={id} value={id}>
-            {FOLDER_DISPLAY_NAMES[id]}
+            {getFolderDisplayName(id)}
           </option>
         ))}
       </select>

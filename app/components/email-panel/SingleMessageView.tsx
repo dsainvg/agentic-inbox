@@ -4,7 +4,8 @@
 
 import EmailAttachmentList from "~/components/EmailAttachmentList";
 import EmailIframe from "~/components/EmailIframe";
-import { formatDetailDate, rewriteInlineImages } from "~/lib/utils";
+import { formatDetailDate } from "shared/dates";
+import { rewriteInlineImages } from "~/lib/utils";
 import type { Email } from "~/types";
 
 interface SingleMessageViewProps {

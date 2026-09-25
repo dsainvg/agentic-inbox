@@ -15,7 +15,13 @@ SESSION_SECRET=replace-with-a-long-random-secret
 # Optional public intake protection. Required for POST /api/v1/external/mailboxes/:mailboxId/messages.
 EXTERNAL_INTAKE_TOKEN=replace-with-a-random-intake-token
 
-# Optional attachment scanner. Without this, allowed files stay pending until owner release.
+# Optional attachment storage fallback. R2 is preferred when bound; Appwrite Storage is used otherwise.
+# APPWRITE_ENDPOINT=https://appwrite.example.com/v1
+# APPWRITE_PROJECT_ID=
+# APPWRITE_API_KEY=
+# APPWRITE_BUCKET_ID=
+
+# Optional attachment scanner. Unset means no scanning: allowed files are marked available immediately.
 # ATTACHMENT_SCAN_ENDPOINT=https://scanner.example.internal/scan
 # ATTACHMENT_SCAN_TOKEN=replace-with-a-scanner-token
 

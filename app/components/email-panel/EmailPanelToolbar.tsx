@@ -21,7 +21,7 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import type { Folder, Email } from "~/types";
-import { FOLDER_DISPLAY_NAMES } from "shared/folders";
+import { getFolderDisplayName } from "shared/folders";
 
 interface EmailPanelToolbarProps {
 	email: Email;
@@ -250,7 +250,7 @@ function MoveToFolderMenu({ folders, onMove }: { folders: Folder[]; onMove: (id:
 							className="w-full text-left px-3 py-2 text-[13px] text-white/80 hover:bg-white/[0.06] transition-colors"
 							onClick={() => { onMove(f.id); setOpen(false); }}
 						>
-							{FOLDER_DISPLAY_NAMES[f.name] || f.name}
+							{getFolderDisplayName(f.id)}
 						</button>
 					))}
 				</div>

@@ -111,6 +111,13 @@ async function migrateApiKeys(db: D1Database) {
 	}
 }
 
+async function migrateAttachments(db: D1Database) {
+	const columns = await db.prepare(`PRAGMA table_info(attachments)`).all<{ name: string }>();
+	if (!columns.results.some((column) => column.name === "storage_backend")) {
+		await db.prepare("ALTER TABLE attachments ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'r2'").run();
+	}
+}
+
 async function migrateEmails(db: D1Database) {
 	const columns = await db.prepare(`PRAGMA table_info(emails)`).all<{ name: string }>();
 	const names = new Set(columns.results.map((column) => column.name));
@@ -234,6 +241,7 @@ async function initialize(db: D1Database) {
 					mime_type TEXT NOT NULL,
 					size INTEGER NOT NULL,
 					r2_key TEXT NOT NULL UNIQUE,
+					storage_backend TEXT NOT NULL DEFAULT 'r2',
 					content_id TEXT,
 					disposition TEXT,
 					scan_status TEXT NOT NULL DEFAULT 'pending',
@@ -386,6 +394,7 @@ async function initialize(db: D1Database) {
 		await migrateFolders(db);
 		await migrateUsers(db);
 		await migrateApiKeys(db);
+		await migrateAttachments(db);
 		await migrateEmails(db);
 		// Ensure standard system folders exist for all mailboxes
 		await db

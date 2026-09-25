@@ -18,7 +18,11 @@
 | `OPENROUTER_MODEL` | No | OpenRouter model used when `OPENROUTER_API_KEY` is configured; defaults to `openrouter/free`. |
 | `OPENROUTER_BASE_URL` | No | Optional OpenRouter API base URL override for compatible gateways. |
 | `EXTERNAL_INTAKE_TOKEN` | Yes for public intake | Secret token required by `POST /api/v1/external/mailboxes/:mailboxId/messages`; public submissions are quarantined by default. |
-| `ATTACHMENT_SCAN_ENDPOINT` | No | Optional HTTP malware scanner endpoint. Attachments remain pending/quarantined when unset. |
+| `ATTACHMENT_SCAN_ENDPOINT` | No | Optional HTTP malware scanner endpoint. When unset, no scanning runs and allowed files (MIME allowlist + 10 MB limit) are marked available immediately. Set it to require a `{"clean": true}` verdict before downloads are served. |
+| `APPWRITE_ENDPOINT` | No | Appwrite Storage REST endpoint used when R2 is unavailable. |
+| `APPWRITE_PROJECT_ID` | No | Appwrite project ID for attachment fallback. |
+| `APPWRITE_API_KEY` | No | Server-side Appwrite API key; never expose it to the browser. |
+| `APPWRITE_BUCKET_ID` | No | Appwrite Storage bucket ID for attachment fallback. |
 | `ATTACHMENT_SCAN_TOKEN` | No | Optional bearer token sent to the attachment scanner. |
 
 ## Secrets
@@ -30,6 +34,11 @@ Set secrets with `wrangler secret put <NAME>`:
 | `SESSION_SECRET` | Yes | Signs and verifies all session JWT cookies. Use a long random string (≥ 32 chars). Rotate by setting a new value (existing sessions will be invalidated). |
 | `OPENROUTER_API_KEY` | No | Enables OpenRouter as the primary AI provider; Workers AI remains the fallback. Keep it in `.dev.vars` locally or as a Wrangler secret; never expose it to the browser. |
 | `EXTERNAL_INTAKE_TOKEN` | No | Enables the public intake endpoint when set; use a random secret and send it as `X-Intake-Token`. |
+| `SMTP_USER` / `SMTP_PASS` | No | Outbound SMTP credentials. Without them, outbound mail is not sent. |
+| `APPWRITE_API_KEY` | No | Server-side Appwrite key used for attachment storage when `ATTACHMENTS` is not bound. |
+| `ATTACHMENT_SCAN_TOKEN` | No | Bearer token sent to `ATTACHMENT_SCAN_ENDPOINT`; without a scanner, allowed attachments are available immediately and can still be released manually via `POST /api/v1/attachments/:id/release`. |
+
+Attachment storage is optional. Priority is `ATTACHMENTS` (R2) → Appwrite → no backend, where mail still persists and attachment bytes are skipped.
 
 ## Bindings (`wrangler.jsonc`)
 
@@ -84,6 +93,8 @@ Create the bucket before deploying:
 ```bash
 wrangler r2 bucket create agentic-inbox-attachments
 ```
+
+R2 remains the preferred backend. When the `ATTACHMENTS` binding is absent, configure the `APPWRITE_*` variables above; if neither is configured, mail storage continues normally and attachment bytes are simply not retained.
 
 ## Hierarchy & agent limits
 

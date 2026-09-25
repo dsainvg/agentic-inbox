@@ -13,12 +13,8 @@ import {
 } from "@phosphor-icons/react";
 import EmailAttachmentList from "~/components/EmailAttachmentList";
 import EmailIframe from "~/components/EmailIframe";
-import {
-	formatDetailDate,
-	formatShortDate,
-	rewriteInlineImages,
-	stripHtml,
-} from "~/lib/utils";
+import { formatDetailDate, formatShortDate } from "shared/dates";
+import { rewriteInlineImages, stripHtml } from "~/lib/utils";
 import type { Email } from "~/types";
 
 interface ThreadMessageProps {
