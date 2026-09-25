@@ -251,18 +251,26 @@ app.post("/api/v1/auth/login", async (c) => {
 	if (existingUsers.length === 0) {
 		return c.json({ error: "Setup required first" }, 400);
 	}
-	const matchingUsers = email ? existingUsers.filter((user) => user.email === email) : existingUsers;
-	if (matchingUsers.length === 0) {
+	// Password-only login: the owner is checked first, then any other account.
+	const candidates = email
+		? existingUsers.filter((user) => user.email === email)
+		: [...existingUsers].sort((a, b) => Number(b.role === "owner") - Number(a.role === "owner"));
+	if (candidates.length === 0) {
 		return c.json({ error: "Invalid credentials" }, 401);
 	}
-	if (matchingUsers.length > 1 || (existingUsers.length > 1 && !email)) {
-		return c.json({ error: "Email is required when multiple users exist" }, 400);
-	}
 
-	const admin = matchingUsers[0];
-	const { valid, needsUpgrade } = await verifyPassword(password, admin.password_hash);
-	if (!valid) {
-		await recordAuditEvent(c.env.DB, { actorId: admin.id, action: "auth.login", result: "failure" });
+	let admin: (typeof existingUsers)[number] | null = null;
+	let needsUpgrade = false;
+	for (const candidate of candidates) {
+		const attempt = await verifyPassword(password, candidate.password_hash);
+		if (attempt.valid) {
+			admin = candidate;
+			needsUpgrade = attempt.needsUpgrade;
+			break;
+		}
+	}
+	if (!admin) {
+		await recordAuditEvent(c.env.DB, { actorId: "admin", action: "auth.login", result: "failure" });
 		return c.json({ error: "Invalid password" }, 401);
 	}
 

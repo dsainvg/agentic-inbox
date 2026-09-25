@@ -214,6 +214,11 @@ test('legacy D1 migration preserves automation actions and scopes folders to mai
     legacy.prepare("INSERT INTO folders(id,name,is_deletable) VALUES('inbox','Inbox',0),('client-work','Client work',1)"),
     legacy.prepare('CREATE TABLE automation_rules(id TEXT PRIMARY KEY,mailbox_id TEXT NOT NULL,match_field TEXT NOT NULL,match_value TEXT NOT NULL,target_folder TEXT,mark_read INTEGER,enabled INTEGER NOT NULL,created_at TEXT NOT NULL)'),
     legacy.prepare("INSERT INTO automation_rules VALUES('old-rule','old@example.com','subject','report','archive',1,1,'2025-01-01')"),
+    legacy.prepare('CREATE TABLE api_keys(id TEXT PRIMARY KEY,key TEXT NOT NULL UNIQUE,name TEXT NOT NULL,mailbox_id TEXT NOT NULL,created_at TEXT NOT NULL)'),
+    legacy.prepare("INSERT INTO api_keys VALUES('legacy-key','legacy-key','Legacy','old@example.com','2025-01-01')"),
+    legacy.prepare('CREATE TABLE emails(id TEXT PRIMARY KEY,mailbox_id TEXT NOT NULL,folder_id TEXT NOT NULL,subject TEXT,sender TEXT,recipient TEXT,cc TEXT,bcc TEXT,date TEXT,read INTEGER DEFAULT 0,starred INTEGER DEFAULT 0,body TEXT,in_reply_to TEXT,email_references TEXT,thread_id TEXT,message_id TEXT,raw_headers TEXT)'),
+    legacy.prepare("INSERT INTO emails(id,mailbox_id,folder_id,subject) VALUES('legacy-email','old@example.com','inbox','Legacy mail')"),
+    legacy.prepare('CREATE TABLE attachments(id TEXT PRIMARY KEY,mailbox_id TEXT NOT NULL,email_id TEXT NOT NULL,filename TEXT NOT NULL,mime_type TEXT NOT NULL,size INTEGER NOT NULL,r2_key TEXT NOT NULL UNIQUE,content_id TEXT,disposition TEXT,scan_status TEXT NOT NULL DEFAULT \'pending\',created_at TEXT NOT NULL)'),
   ]);
   for (let i = 0; i < 2; i++) assert.equal((await mf.dispatchFetch('http://localhost/__test/migrate')).status, 200);
   const row = await legacy.prepare("SELECT * FROM automation_rules WHERE id='old-rule'").first();
@@ -224,4 +229,12 @@ test('legacy D1 migration preserves automation actions and scopes folders to mai
   assert.deepEqual(await legacy.prepare('SELECT mailbox_id, name, is_deletable FROM folders WHERE name=?')
     .bind('Client work').first(), { mailbox_id: 'old@example.com', name: 'Client work', is_deletable: 1 });
   assert.equal(await legacy.prepare('SELECT count(*) AS n FROM workspace_groups').first('n'), 0);
+  // Columns the schema batch indexes must exist on legacy tables before it runs.
+  const apiKeyColumns = await legacy.prepare('PRAGMA table_info(api_keys)').all();
+  assert.ok(apiKeyColumns.results.some(column => column.name === 'key_hash'));
+  const emailColumns = await legacy.prepare('PRAGMA table_info(emails)').all();
+  assert.ok(emailColumns.results.some(column => column.name === 'draft_status'));
+  const attachmentColumns = await legacy.prepare('PRAGMA table_info(attachments)').all();
+  assert.ok(attachmentColumns.results.some(column => column.name === 'storage_backend'));
+  assert.equal(await legacy.prepare('SELECT count(*) AS n FROM emails').first('n'), 1);
 });

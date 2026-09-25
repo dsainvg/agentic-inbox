@@ -1,4 +1,3 @@
-import { OpenRouter } from "@openrouter/sdk";
 import type { Env } from "../types";
 
 export type OpenRouterConfig = {
@@ -20,7 +19,15 @@ export function getOpenRouterConfig(env: Pick<Env, "OPENROUTER_API_KEY" | "OPENR
 	};
 }
 
-export function createOpenRouter(config: OpenRouterConfig): OpenRouter {
+/** Loaded on first AI call: the SDK is large and is not needed to serve a request. */
+let sdk: Promise<typeof import("@openrouter/sdk")> | undefined;
+function loadSdk() {
+	sdk ??= import("@openrouter/sdk");
+	return sdk;
+}
+
+export async function createOpenRouter(config: OpenRouterConfig) {
+	const { OpenRouter } = await loadSdk();
 	return new OpenRouter({
 		apiKey: config.apiKey,
 		serverURL: config.baseUrl,
@@ -160,7 +167,7 @@ export class OpenRouterChatModel {
 	readonly provider = "openrouter";
 	readonly modelId: string;
 	readonly supportedUrls = {};
-	private readonly client: OpenRouter;
+	private readonly client: Promise<Awaited<ReturnType<typeof createOpenRouter>>>;
 
 	constructor(private readonly config: OpenRouterConfig) {
 		this.modelId = config.model;
@@ -185,7 +192,8 @@ export class OpenRouterChatModel {
 
 	async doGenerate(options: any) {
 		const request = this.request(options, false);
-		const result: any = await this.client.chat.send(request, { signal: options.abortSignal });
+		const client = await this.client;
+		const result: any = await client.chat.send(request, { signal: options.abortSignal });
 		const choice = result.choices?.[0];
 		return {
 			content: toGenerateContent(choice?.message),
@@ -203,7 +211,8 @@ export class OpenRouterChatModel {
 
 	async doStream(options: any) {
 		const request = this.request(options, true);
-		const result: any = await this.client.chat.send(request, { signal: options.abortSignal });
+		const client = await this.client;
+		const result: any = await client.chat.send(request, { signal: options.abortSignal });
 		if (!result || typeof (result as any)[Symbol.asyncIterator] !== "function") {
 			throw new Error("OpenRouter returned a non-streaming response");
 		}

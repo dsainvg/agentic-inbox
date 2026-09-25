@@ -106,6 +106,7 @@ async function migrateUsers(db: D1Database) {
 
 async function migrateApiKeys(db: D1Database) {
 	const columns = await db.prepare(`PRAGMA table_info(api_keys)`).all<{ name: string }>();
+	if (columns.results.length === 0) return;
 	if (!columns.results.some((column) => column.name === "key_hash")) {
 		await db.prepare("ALTER TABLE api_keys ADD COLUMN key_hash TEXT").run();
 	}
@@ -113,6 +114,7 @@ async function migrateApiKeys(db: D1Database) {
 
 async function migrateAttachments(db: D1Database) {
 	const columns = await db.prepare(`PRAGMA table_info(attachments)`).all<{ name: string }>();
+	if (columns.results.length === 0) return;
 	if (!columns.results.some((column) => column.name === "storage_backend")) {
 		await db.prepare("ALTER TABLE attachments ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'r2'").run();
 	}
@@ -120,6 +122,7 @@ async function migrateAttachments(db: D1Database) {
 
 async function migrateEmails(db: D1Database) {
 	const columns = await db.prepare(`PRAGMA table_info(emails)`).all<{ name: string }>();
+	if (columns.results.length === 0) return;
 	const names = new Set(columns.results.map((column) => column.name));
 	const additions: Array<[string, string]> = [
 		["draft_status", "TEXT"],
@@ -139,6 +142,12 @@ async function migrateEmails(db: D1Database) {
 
 async function initialize(db: D1Database) {
 	try {
+		// Legacy tables must gain the columns the batch below indexes before it runs:
+		// CREATE TABLE IF NOT EXISTS is a no-op there, so the batch would abort and
+		// every request would fail with "no such column".
+		await migrateApiKeys(db);
+		await migrateAttachments(db);
+		await migrateEmails(db);
 		await db.batch([
 			db.prepare(`
 				CREATE TABLE IF NOT EXISTS mailboxes (
@@ -393,9 +402,6 @@ async function initialize(db: D1Database) {
 		await migrateAutomationRules(db);
 		await migrateFolders(db);
 		await migrateUsers(db);
-		await migrateApiKeys(db);
-		await migrateAttachments(db);
-		await migrateEmails(db);
 		// Ensure standard system folders exist for all mailboxes
 		await db
 			.prepare(

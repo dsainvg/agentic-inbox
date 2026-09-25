@@ -7,7 +7,6 @@ import { getCookie } from "hono/cookie";
 import { createRequestHandler } from "react-router";
 import { routeAgentRequest } from "agents";
 import { app as apiApp, receiveEmail, type InboundEmailEvent } from "./index";
-import { serveMcp } from "./mcp/index";
 import { auditApi } from "./routes/audit";
 import { usersApi } from "./routes/users";
 import { processScheduledDrafts } from "./lib/draft-service";
@@ -124,6 +123,8 @@ app.all("/mcp", async (c) => {
 	if (!apiKey) return c.json({ error: "Provide a mailbox API key using Authorization: Bearer or X-API-Key." }, 401);
 	const validated = await validateApiKey(c.env, apiKey);
 	if (!validated) return c.json({ error: "Invalid API Key" }, 401);
+	// Loaded per request: the MCP SDK is large and is not needed to serve the app.
+	const { serveMcp } = await import("./mcp/index");
 	return serveMcp(c.req.raw, c.env, c.executionCtx as ExecutionContext, validated.mailboxId.toLowerCase());
 });
 

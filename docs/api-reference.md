@@ -27,7 +27,8 @@ Create the owner account on first run. Only works when no `admin` user exists.
 ---
 
 ### `POST /api/v1/auth/login`
-Authenticate as the owner.
+Authenticate with the account password. An `email` field is optional and only needed to
+disambiguate when several accounts share one password; the owner account is checked first.
 
 **Body:**
 ```json

@@ -106,6 +106,15 @@ test("instruction textareas retain readable placeholders and visible keyboard fo
   assert.match(settings, /<HierarchySettings/);
 });
 
+test("login is password only", () => {
+  const login = source("routes/login.tsx");
+  assert.doesNotMatch(login, /type="email"/);
+  assert.doesNotMatch(login, /Email \(optional\)/);
+  assert.match(login, /await api\.login\(password\)/);
+  const api = source("services/api.ts");
+  assert.match(api, /login: \(password: string\) =>/);
+});
+
 const compiler = await compile(source("index.css"), { base: join(root, "app"), onDependency() {} });
 const scanner = new Scanner({ sources: [
   { base: join(root, "app"), pattern: "**/*.{tsx,ts}", negated: false },

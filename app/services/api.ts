@@ -269,8 +269,8 @@ const api = {
 		get<{ authenticated: boolean; setupRequired: boolean; user: { id: string; email: string; role: string } | null }>("/api/v1/auth/me"),
 	setupAdmin: (password: string) =>
 		post<{ success: boolean }>("/api/v1/auth/setup", { password }),
-	login: (password: string, email?: string) =>
-		post<{ success: boolean }>("/api/v1/auth/login", { password, ...(email ? { email } : {}) }),
+	login: (password: string) =>
+		post<{ success: boolean }>("/api/v1/auth/login", { password }),
 	logout: () =>
 		post<{ success: boolean }>("/api/v1/auth/logout"),
 	logoutAll: () =>

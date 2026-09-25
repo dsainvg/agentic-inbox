@@ -53,7 +53,8 @@ export async function runAiWithFallbacks(
 
 	if (openRouter) {
 		try {
-			const result = await createOpenRouter(openRouter).chat.send({
+			const client = await createOpenRouter(openRouter);
+			const result = await client.chat.send({
 				chatRequest: {
 					messages: messages as any,
 					model: openRouter.model,
