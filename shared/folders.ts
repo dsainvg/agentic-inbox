@@ -18,6 +18,7 @@ export const Folders = {
 	ARCHIVE: "archive",
 	TRASH: "trash",
 	SPAM: "spam",
+	QUARANTINE: "quarantine",
 } as const;
 
 export type FolderId = (typeof Folders)[keyof typeof Folders];
@@ -33,6 +34,7 @@ export const SYSTEM_FOLDER_IDS: readonly FolderId[] = [
 	Folders.DRAFT,
 	Folders.ARCHIVE,
 	Folders.TRASH,
+	Folders.QUARANTINE,
 ];
 
 /**
@@ -47,6 +49,7 @@ export const FOLDER_DISPLAY_NAMES: Record<string, string> = {
 	[Folders.ARCHIVE]: "Archive",
 	[Folders.TRASH]: "Trash",
 	[Folders.SPAM]: "Spam",
+	[Folders.QUARANTINE]: "Quarantine",
 };
 
 

@@ -8,7 +8,7 @@ The **EmailAgent** is a Cloudflare Durable Object that extends `AIChatAgent` fro
 - Inbound-email draft generation (`/onNewEmail` — called by the Worker's `email()` handler).
 - MCP tool calls from external AI tools.
 
-The agent uses `@cf/moonshotai/kimi-k2.5` via Workers AI (`AI` binding).
+The agent uses OpenRouter as the primary provider when `OPENROUTER_API_KEY` is configured, defaulting to the `openrouter/free` model. Workers AI through the `AI` binding remains the fallback.
 
 ---
 

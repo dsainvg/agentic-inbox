@@ -77,20 +77,22 @@ async function request<T>(
 	}
 }
 
-function get<T>(url: string, opts?: { params?: Record<string, string>; responseType?: string; signal?: AbortSignal }) {
+function get<T>(url: string, opts?: { params?: Record<string, string>; responseType?: string; signal?: AbortSignal; headers?: Record<string, string> }) {
 	const query = opts?.params ? `?${new URLSearchParams(opts.params)}` : "";
 	return request<T>(`${url}${query}`, {
 		method: "GET",
 		signal: opts?.signal,
-		...(opts?.responseType === "blob" ? { headers: { Accept: "*/*" } } : {}),
+		headers: opts?.headers,
+		...(opts?.responseType === "blob" ? { headers: { Accept: "*/*", ...opts?.headers } } : {}),
 	});
 }
 
-function post<T>(url: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number }) {
+function post<T>(url: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; headers?: Record<string, string> }) {
 	return request<T>(url, {
 		method: "POST",
 		signal: opts?.signal,
 		timeoutMs: opts?.timeoutMs,
+		headers: opts?.headers,
 		body: body != null ? JSON.stringify(body) : undefined,
 	});
 }
@@ -98,6 +100,13 @@ function post<T>(url: string, body?: unknown, opts?: { signal?: AbortSignal; tim
 function put<T>(url: string, body?: unknown) {
 	return request<T>(url, {
 		method: "PUT",
+		body: body != null ? JSON.stringify(body) : undefined,
+	});
+}
+
+function patch<T>(url: string, body?: unknown) {
+	return request<T>(url, {
+		method: "PATCH",
 		body: body != null ? JSON.stringify(body) : undefined,
 	});
 }
@@ -150,6 +159,7 @@ const api = {
 		post<void>(`/api/v1/mailboxes/${mailboxId}/threads/${threadId}/read`),
 	getAttachment: (mailboxId: string, emailId: string, attachmentId: string) =>
 		get<Blob>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/attachments/${attachmentId}`, { responseType: "blob" }),
+	releaseAttachment: (attachmentId: string) => post<{ id: string; status: string }>(`/api/v1/attachments/${attachmentId}/release`, {}),
 	saveDraft: (
 		mailboxId: string,
 		draft: {
@@ -163,6 +173,10 @@ const api = {
 			draft_id?: string;
 		},
 	) => post<{ draft_id: string }>(`/api/v1/mailboxes/${mailboxId}/drafts`, draft),
+	approveDraft: (mailboxId: string, draftId: string) => post<{ draft_id: string; status: string }>(`/api/v1/mailboxes/${mailboxId}/drafts/${draftId}/approve`, {}),
+	rejectDraft: (mailboxId: string, draftId: string) => post<{ draft_id: string; status: string }>(`/api/v1/mailboxes/${mailboxId}/drafts/${draftId}/reject`, {}),
+	scheduleDraft: (mailboxId: string, draftId: string, scheduledAt: string) => post<{ draft_id: string; status: string; scheduled_at: string }>(`/api/v1/mailboxes/${mailboxId}/drafts/${draftId}/schedule`, { scheduledAt }),
+	sendApprovedDraft: (mailboxId: string, draftId: string, idempotencyKey: string) => 		post<{ status: string; draftId: string; sentId?: string }>(`/api/v1/mailboxes/${mailboxId}/drafts/${draftId}/send`, { idempotencyKey }, { headers: { "Idempotency-Key": idempotencyKey } }),
 	replyToEmail: (mailboxId: string, emailId: string, email: unknown) =>
 		post<void>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/reply`, email),
 	summarizeEmail: (mailboxId: string, emailId: string, thread?: boolean) =>
@@ -215,6 +229,32 @@ const api = {
 	// Search
 	searchEmails: (mailboxId: string, params: Record<string, string>) =>
 		get<EmailListResponse | Email[]>(`/api/v1/mailboxes/${mailboxId}/search`, { params }),
+	analyzeEmail: (mailboxId: string, emailId: string) =>
+		post<Record<string, unknown>>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/analyze`, {}),
+	applyEmailAnalysis: (mailboxId: string, emailId: string, analysisId: string) =>
+		post<{ status: string; folder: string }>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/analysis/${analysisId}/apply`, {}),
+	undoEmailAnalysis: (mailboxId: string, emailId: string, analysisId: string) =>
+		post<{ status: string; folder: string }>(`/api/v1/mailboxes/${mailboxId}/emails/${emailId}/analysis/${analysisId}/undo`, {}),
+	getThreadMetadata: (mailboxId: string, threadId: string) =>
+		get<Record<string, unknown>>(`/api/v1/mailboxes/${mailboxId}/threads/${threadId}/metadata`),
+	updateThreadMetadata: (mailboxId: string, threadId: string, metadata: Record<string, unknown>) =>
+		patch<Record<string, unknown>>(`/api/v1/mailboxes/${mailboxId}/threads/${threadId}/metadata`, metadata),
+	listReminders: (mailboxId: string) =>
+		get<Record<string, unknown>[]>(`/api/v1/mailboxes/${mailboxId}/reminders`),
+	createReminder: (mailboxId: string, threadId: string, dueAt: string, message: string) =>
+		post<Record<string, unknown>>(`/api/v1/mailboxes/${mailboxId}/threads/${threadId}/reminders`, { dueAt, message }),
+	listSavedSearches: (mailboxId: string) =>
+		get<Record<string, unknown>[]>(`/api/v1/mailboxes/${mailboxId}/saved-searches`),
+	createSavedSearch: (mailboxId: string, name: string, query: string, filters: Record<string, unknown> = {}) =>
+		post<Record<string, unknown>>(`/api/v1/mailboxes/${mailboxId}/saved-searches`, { name, query, filters }),
+	getAuditEvents: () => get<{ events: Record<string, unknown>[] }>("/api/v1/audit"),
+	getUsers: () => get<Record<string, unknown>[]>("/api/v1/users"),
+	createUser: (email: string, password: string, role: string) => post<Record<string, unknown>>("/api/v1/users", { email, password, role }),
+	rotateRecoveryCode: () => post<{ code: string; warning: string }>("/api/v1/users/recovery-code", {}),
+	getAutomationRuns: (mailboxId: string) => get<Record<string, unknown>[]>(`/api/v1/mailboxes/${mailboxId}/automation-runs`),
+	exportBackup: (passphrase: string) => get<Record<string, unknown>>("/api/v1/backup", { headers: { "X-Export-Passphrase": passphrase } }),
+	validateBackup: (envelope: Record<string, unknown>, passphrase: string) => post<Record<string, unknown>>("/api/v1/backup/validate", envelope, { headers: { "X-Export-Passphrase": passphrase } }),
+	restoreBackup: (envelope: Record<string, unknown>, passphrase: string, dryRun = true) => post<Record<string, unknown>>("/api/v1/backup/restore", { ...envelope, dryRun, confirm: dryRun ? "" : "RESTORE" }, { headers: { "X-Export-Passphrase": passphrase } }),
 
 	// API Keys
 	listApiKeys: (mailboxId: string) =>
@@ -226,13 +266,15 @@ const api = {
 
 	// Auth
 	getAuthMe: () =>
-		get<{ authenticated: boolean; setupRequired: boolean }>("/api/v1/auth/me"),
+		get<{ authenticated: boolean; setupRequired: boolean; user: { id: string; email: string; role: string } | null }>("/api/v1/auth/me"),
 	setupAdmin: (password: string) =>
 		post<{ success: boolean }>("/api/v1/auth/setup", { password }),
-	login: (password: string) =>
-		post<{ success: boolean }>("/api/v1/auth/login", { password }),
+	login: (password: string, email?: string) =>
+		post<{ success: boolean }>("/api/v1/auth/login", { password, ...(email ? { email } : {}) }),
 	logout: () =>
 		post<{ success: boolean }>("/api/v1/auth/logout"),
+	logoutAll: () =>
+		post<{ success: boolean }>("/api/v1/auth/logout-all"),
 	changePassword: (currentPassword: string, newPassword: string) =>
 		post<{ success: boolean }>("/api/v1/auth/change-password", { currentPassword, newPassword }),
 };

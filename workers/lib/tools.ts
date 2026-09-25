@@ -27,6 +27,7 @@ import {
 	buildThreadingHeaders,
 } from "./email-helpers";
 import { verifyDraft } from "./ai";
+import { getOpenRouterConfig } from "./openrouter";
 import { sendSmtpEmail } from "./smtp";
 import { replySubject } from "./email-helpers";
 import { Folders } from "../../shared/folders";
@@ -130,7 +131,7 @@ export async function toolDraftReply(
 	// Verify/sanitize if requested
 	let processedBody = params.body.trim();
 	if (params.runVerifyDraft) {
-		const sanitized = await verifyDraft(env.AI, processedBody);
+		const sanitized = await verifyDraft(env.AI, processedBody, getOpenRouterConfig(env));
 		if (!sanitized) {
 			return { error: "Draft verification failed — body could not be verified. Please try again." };
 		}
@@ -214,7 +215,7 @@ export async function toolDraftEmail(
 
 	let processedBody = params.body.trim();
 	if (params.runVerifyDraft) {
-		const sanitized = await verifyDraft(env.AI, processedBody);
+		const sanitized = await verifyDraft(env.AI, processedBody, getOpenRouterConfig(env));
 		if (!sanitized) {
 			return { error: "Draft verification failed — body could not be verified. Please try again." };
 		}
@@ -296,7 +297,7 @@ export async function toolUpdateDraft(
 	// Verify before atomically replacing the existing draft.
 	const newDraftId = crypto.randomUUID();
 	const rawBody = params.bodyHtml ?? oldDraft.body ?? "";
-	const verifiedBody = await verifyDraft(env.AI, rawBody);
+	const verifiedBody = await verifyDraft(env.AI, rawBody, getOpenRouterConfig(env));
 
 	if (!verifiedBody) {
 		return { error: "Draft verification failed — keeping existing draft unchanged. Please try again." };
@@ -391,9 +392,9 @@ export async function toolDeleteEmail(
 // ── send_reply ─────────────────────────────────────────────────────
 
 export async function toolSendReply(
-	env: Env,
-	mailboxId: string,
-	params: {
+	_env: Env,
+	_mailboxId: string,
+	_params: {
 		originalEmailId: string;
 		to: string;
 		subject: string;
@@ -403,88 +404,15 @@ export async function toolSendReply(
 	| { status: "sent"; messageId: string; message: string; warning?: string }
 	| { error: string }
 > {
-	const stub = getMailboxStub(env, mailboxId);
-
-	const configError = smtpConfigurationError(env);
-	if (configError) return { error: configError };
-
-	const originalEmail = (await stub.getEmail(params.originalEmailId)) as EmailFull | null;
-	if (!originalEmail) {
-		return { error: "Original email not found" };
-	}
-
-	const subject = replySubject(params.subject || originalEmail.subject);
-	const { originalMsgId, references, threadId } = buildReferencesChain(originalEmail);
-	const fromDomain = mailboxId.split("@")[1];
-	if (!fromDomain) throw new Error("Invalid mailbox email address");
-	const { messageId } = generateMessageId(fromDomain);
-
-	// Verify and append quoted original message
-	const sanitizedBody = await verifyDraft(env.AI, params.bodyHtml);
-	if (!sanitizedBody) {
-		return { error: "Draft verification failed — refusing to send unverified content. Please try again." };
-	}
-	const quotedBlock = buildQuotedReplyBlock({
-		date: originalEmail.date,
-		sender: originalEmail.sender || params.to,
-		body: originalEmail.body ?? undefined,
-	});
-	const fullBodyHtml = sanitizedBody + quotedBlock;
-
-	let smtpMessageId: string;
-	try {
-		const rateLimitError = await stub.checkSendRateLimit();
-		if (rateLimitError) return { error: rateLimitError };
-		const sent = await sendSmtpEmail({
-			host: env.SMTP_HOST, port: env.SMTP_PORT,
-			user: env.SMTP_USER, pass: env.SMTP_PASS,
-			to: params.to,
-			from: mailboxId.toLowerCase(),
-			replyTo: mailboxId.toLowerCase(),
-			subject,
-			html: fullBodyHtml,
-			headers: buildThreadingHeaders(originalMsgId, references),
-		});
-		smtpMessageId = sent.messageId;
-	} catch (e) {
-		console.error("Email send failed:", (e as Error).message);
-		return { error: `Failed to send reply: ${(e as Error).message}` };
-	}
-
-	let sentRecordWarning: string | undefined;
-	try {
-		await stub.createEmail(
-			Folders.SENT,
-			{
-				id: messageId,
-				subject,
-				sender: mailboxId.toLowerCase(),
-				recipient: params.to.toLowerCase(),
-				date: new Date().toISOString(),
-				body: fullBodyHtml,
-				in_reply_to: originalMsgId,
-				email_references:
-					references.length > 0 ? JSON.stringify(references) : null,
-				thread_id: threadId,
-				message_id: smtpMessageId.replace(/^<|>$/g, ""),
-			},
-			[],
-		);
-	} catch (e) {
-		// The email WAS delivered; do not report an error that invites a duplicate send.
-		console.error("Failed to record sent reply in D1:", (e as Error).message);
-		sentRecordWarning = `Reply was delivered, but saving it to the Sent folder failed: ${(e as Error).message}`;
-	}
-
-	return { status: "sent", messageId, message: `Reply sent to ${params.to}`, ...(sentRecordWarning ? { warning: sentRecordWarning } : {}) };
+	return { error: "Direct agent/MCP sending is disabled. Save a draft, approve it, and use the owner send endpoint." };
 }
 
 // ── send_email ─────────────────────────────────────────────────────
 
 export async function toolSendEmail(
-	env: Env,
-	mailboxId: string,
-	params: {
+	_env: Env,
+	_mailboxId: string,
+	_params: {
 		to: string;
 		subject: string;
 		bodyHtml: string;
@@ -493,62 +421,5 @@ export async function toolSendEmail(
 	| { status: "sent"; messageId: string; message: string; warning?: string }
 	| { error: string }
 > {
-	const stub = getMailboxStub(env, mailboxId);
-
-	const configError = smtpConfigurationError(env);
-	if (configError) return { error: configError };
-
-	const fromDomain = mailboxId.split("@")[1];
-	if (!fromDomain) throw new Error("Invalid mailbox email address");
-	const { messageId } = generateMessageId(fromDomain);
-
-	const sanitizedBody = await verifyDraft(env.AI, params.bodyHtml);
-	if (!sanitizedBody) {
-		return { error: "Draft verification failed — refusing to send unverified content. Please try again." };
-	}
-
-	let smtpMessageId: string;
-	try {
-		const rateLimitError = await stub.checkSendRateLimit();
-		if (rateLimitError) return { error: rateLimitError };
-		const sent = await sendSmtpEmail({
-			host: env.SMTP_HOST, port: env.SMTP_PORT,
-			user: env.SMTP_USER, pass: env.SMTP_PASS,
-			to: params.to,
-			from: mailboxId.toLowerCase(),
-			replyTo: mailboxId.toLowerCase(),
-			subject: params.subject,
-			html: sanitizedBody,
-		});
-		smtpMessageId = sent.messageId;
-	} catch (e) {
-		console.error("Email send failed:", (e as Error).message);
-		return { error: `Failed to send email: ${(e as Error).message}` };
-	}
-
-	let sentRecordWarning: string | undefined;
-	try {
-		await stub.createEmail(
-			Folders.SENT,
-			{
-				id: messageId,
-				subject: params.subject,
-				sender: mailboxId.toLowerCase(),
-				recipient: params.to.toLowerCase(),
-				date: new Date().toISOString(),
-				body: sanitizedBody,
-				in_reply_to: null,
-				email_references: null,
-				thread_id: messageId,
-				message_id: smtpMessageId.replace(/^<|>$/g, ""),
-			},
-			[],
-		);
-	} catch (e) {
-		// The email WAS delivered; do not report an error that invites a duplicate send.
-		console.error("Failed to record sent email in D1:", (e as Error).message);
-		sentRecordWarning = `Email was delivered, but saving it to the Sent folder failed: ${(e as Error).message}`;
-	}
-
-	return { status: "sent", messageId, message: `Email sent to ${params.to}`, ...(sentRecordWarning ? { warning: sentRecordWarning } : {}) };
+	return { error: "Direct agent/MCP sending is disabled. Save a draft, approve it, and use the owner send endpoint." };
 }

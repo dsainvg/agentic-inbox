@@ -15,4 +15,11 @@ export interface Env extends Omit<Cloudflare.Env, "SMTP_HOST" | "SMTP_PORT" | "S
 	SMTP_PORT?: string;
 	SMTP_USER?: string;
 	SMTP_PASS?: string;
+	OPENROUTER_API_KEY?: string;
+	OPENROUTER_MODEL?: string;
+	OPENROUTER_BASE_URL?: string;
+	EXTERNAL_INTAKE_TOKEN?: string;
+	ATTACHMENTS: R2Bucket;
+	ATTACHMENT_SCAN_ENDPOINT?: string;
+	ATTACHMENT_SCAN_TOKEN?: string;
 }

@@ -16,6 +16,7 @@ export const mailboxes = sqliteTable("mailboxes", {
 export const apiKeys = sqliteTable("api_keys", {
 	id: text("id").primaryKey(),
 	key: text("key").notNull().unique(),
+	key_hash: text("key_hash"),
 	name: text("name").notNull(),
 	mailbox_id: text("mailbox_id")
 		.notNull()
@@ -52,11 +53,56 @@ export const emails = sqliteTable("emails", {
 	thread_id: text("thread_id"),
 	message_id: text("message_id"),
 	raw_headers: text("raw_headers"),
+	draft_status: text("draft_status"),
+	approved_at: text("approved_at"),
+	scheduled_at: text("scheduled_at"),
+	sent_at: text("sent_at"),
+	send_attempts: integer("send_attempts").notNull().default(0),
+	last_send_error: text("last_send_error"),
+	idempotency_key: text("idempotency_key"),
+	draft_receipt: text("draft_receipt"),
+});
+
+export const attachments = sqliteTable("attachments", {
+	id: text("id").primaryKey(),
+	mailbox_id: text("mailbox_id").notNull().references(() => mailboxes.id, { onDelete: "cascade" }),
+	email_id: text("email_id").notNull(),
+	filename: text("filename").notNull(),
+	mime_type: text("mime_type").notNull(),
+	size: integer("size").notNull(),
+	r2_key: text("r2_key").notNull().unique(),
+	content_id: text("content_id"),
+	disposition: text("disposition"),
+	scan_status: text("scan_status").notNull().default("pending"),
+	created_at: text("created_at").notNull(),
+});
+
+export const emailAnalyses = sqliteTable("email_analyses", {
+	id: text("id").primaryKey(),
+	mailbox_id: text("mailbox_id").notNull().references(() => mailboxes.id, { onDelete: "cascade" }),
+	email_id: text("email_id").notNull(),
+	thread_id: text("thread_id"),
+	model: text("model").notNull(),
+	classification: text("classification").notNull(),
+	confidence: text("confidence").notNull(),
+	summary: text("summary").notNull(),
+	action_items: text("action_items").notNull().default("[]"),
+	evidence: text("evidence").notNull().default("[]"),
+	suggested_folder: text("suggested_folder"),
+	previous_folder: text("previous_folder"),
+	applied_folder: text("applied_folder"),
+	applied_at: text("applied_at"),
+	created_at: text("created_at").notNull(),
 });
 
 export const users = sqliteTable("users", {
 	id: text("id").primaryKey(), // "admin"
 	password_hash: text("password_hash").notNull(),
+	email: text("email").notNull().unique(),
+	role: text("role").notNull().default("owner"),
+	status: text("status").notNull().default("active"),
+	session_version: integer("session_version").notNull().default(0),
+	recovery_code_hash: text("recovery_code_hash"),
 	created_at: text("created_at").notNull(),
 });
 

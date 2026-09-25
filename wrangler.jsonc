@@ -39,6 +39,16 @@
 			"database_id": "a64fda88-12b1-4133-a641-e56d488c1dea"
 		}
 	],
+	"triggers": {
+		"crons": ["* * * * *"]
+	},
+	"r2_buckets": [
+		{
+			"binding": "ATTACHMENTS",
+			"bucket_name": "agentic-inbox-attachments"
+		}
+	],
+
 	"routes": [
 		{
 			"pattern": "mail.dsainvg.dpdns.org",

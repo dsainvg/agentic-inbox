@@ -13,7 +13,7 @@
        └─────────────┤                        │     │  EmailAgent DO       │
                      │                        │     │  (AIChatAgent)       │
                      │  /mcp ─────────────────┼────>│  email tools         │
-                     │  (API key per mailbox) │     │  Workers AI          │
+                      │  (API key per mailbox) │     │  OpenRouter → Workers AI fallback │
                      │                        │     └──────────────────────┘
                      │  email() handler ──────┼────>  D1 + EmailAgent DO
                      └───────────────────────┘
@@ -49,7 +49,7 @@ Extends `AIChatAgent` from `@cloudflare/agents`. Handles persistent WebSocket ch
 At each inference call the agent:
 1. Calls `withOwnerMemory()` to merge workspace → group → mailbox memory into the system prompt.
 2. Prepends `THREE_H_POLICY` — non-overridable Helpful / Honest / Harmless principles.
-3. Calls the LLM (`@cf/moonshotai/kimi-k2.5` via Workers AI).
+3. Calls the configured OpenRouter model when enabled, falling back to Workers AI.
 4. Verifies tool receipts with `hasSavedDraft()` before reporting success.
 
 See [Agent & 3H Policy](./agent.md) for full details.

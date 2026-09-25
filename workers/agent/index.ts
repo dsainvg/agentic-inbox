@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { EmailFull } from "../lib/schemas";
 import { verifyDraft, isPromptInjection, runAiWithFallbacks, AI_TEXT_MODELS } from "../lib/ai";
 import { createChatModel } from "../lib/chat-model";
+import { getOpenRouterConfig, OpenRouterChatModel } from "../lib/openrouter";
 import { withOwnerMemory } from "../lib/hierarchy";
 import { hasSavedDraft } from "../lib/agent-policy";
 import {
@@ -306,7 +307,7 @@ function createEmailTools(env: Env, mailboxId: string) {
 						],
 						max_tokens: 512,
 						temperature: 0.2,
-					});
+					}, undefined, getOpenRouterConfig(env));
 					return { summary: res.text, model: res.model };
 				} catch (e) {
 					return { error: (e as Error).message };
@@ -327,7 +328,7 @@ export class EmailAgent extends AIChatAgent<any> {
 		const systemPrompt = await getSystemPrompt(env, mailboxId);
 
 		const result = streamText({
-			model: createChatModel(env.AI),
+			model: createChatModel(env.AI, getOpenRouterConfig(env)),
 			abortSignal: options?.abortSignal,
 			// The model wrapper handles startup fallback; avoid repeating the whole chain.
 			maxRetries: 0,
@@ -354,6 +355,10 @@ export class EmailAgent extends AIChatAgent<any> {
 	async onRequest(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		if (url.pathname === "/onNewEmail" && request.method === "POST") {
+			const env = this.env as Env;
+			if (!env.SESSION_SECRET || request.headers.get("X-Agent-Internal-Token") !== env.SESSION_SECRET) {
+				return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
+			}
 			try {
 				const emailData = await request.json() as {
 					mailboxId: string;
@@ -390,6 +395,8 @@ export class EmailAgent extends AIChatAgent<any> {
 	}) {
 		const env = this.env as Env;
 		const workersai = createWorkersAI({ binding: env.AI });
+		const openRouter = getOpenRouterConfig(env);
+		const openRouterModel = openRouter ? new OpenRouterChatModel(openRouter) : null;
 		const tools = createEmailTools(env, emailData.mailboxId);
 		const systemPrompt = await getSystemPrompt(env, emailData.mailboxId);
 
@@ -412,7 +419,7 @@ export class EmailAgent extends AIChatAgent<any> {
 				threadId: email.thread_id || email.id,
 			};
 			if (email.body) {
-				const isInjection = await isPromptInjection(env.AI, email.body);
+				const isInjection = await isPromptInjection(env.AI, email.body, getOpenRouterConfig(env));
 				if (isInjection) {
 					console.warn("Skipping auto-draft due to detected prompt injection:", emailData.emailId);
 					
@@ -453,7 +460,7 @@ export class EmailAgent extends AIChatAgent<any> {
 			// could plant an injection in an earlier email in the thread
 			// that gets included in the agent's prompt.
 			if (threadContext) {
-				const threadInjection = await isPromptInjection(env.AI, threadContext);
+				const threadInjection = await isPromptInjection(env.AI, threadContext, getOpenRouterConfig(env));
 				if (threadInjection) {
 					console.warn("Skipping auto-draft due to prompt injection in thread context:", emailData.threadId);
 					const newMessages = [
@@ -523,10 +530,13 @@ Based on the email content and thread context above, draft a reply using draft_r
 			let result: Awaited<ReturnType<typeof generateText<typeof tools>>> | null = null;
 			let lastErr: Error | null = null;
 
-			for (const modelId of AI_TEXT_MODELS) {
+			const modelIds = openRouterModel
+				? ["openrouter", ...(env.AI ? AI_TEXT_MODELS : [])]
+				: env.AI ? AI_TEXT_MODELS : [];
+			for (const modelId of modelIds) {
 				try {
 					result = await generateText({
-						model: workersai(modelId as any),
+						model: modelId === "openrouter" ? openRouterModel! : workersai(modelId as any),
 						system: systemPrompt,
 						messages: await convertToModelMessages(messages),
 						tools,
@@ -551,7 +561,7 @@ Based on the email content and thread context above, draft a reply using draft_r
 			// Never bypass a failed tool by saving its error commentary as an email.
 			if (!draftSaved && !draftAttempted && result.text.trim()) {
 				// Model generated a draft inline as text -- verify with AI
-				const sanitizedText = await verifyDraft(env.AI, result.text.trim());
+				const sanitizedText = await verifyDraft(env.AI, result.text.trim(), getOpenRouterConfig(env));
 				if (!sanitizedText) {
 					// Inline text was entirely agent commentary, skip
 				} else {

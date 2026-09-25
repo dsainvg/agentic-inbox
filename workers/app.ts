@@ -4,12 +4,16 @@
 
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
-import { jwtVerify } from "jose";
 import { createRequestHandler } from "react-router";
 import { routeAgentRequest } from "agents";
 import { app as apiApp, receiveEmail, type InboundEmailEvent } from "./index";
 import { serveMcp } from "./mcp/index";
+import { auditApi } from "./routes/audit";
+import { usersApi } from "./routes/users";
+import { processScheduledDrafts } from "./lib/draft-service";
+import { ensureDbInitialized } from "./db/init";
 import { validateApiKey } from "./lib/api-keys";
+import { verifySessionToken } from "./lib/session";
 import type { Env } from "./types";
 
 declare module "react-router" {
@@ -27,11 +31,11 @@ const requestHandler = createRequestHandler(
 );
 
 // Main app that wraps the API and adds React Router fallback
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: { userId: string; role: string } }>();
 
 app.onError((err, c) => {
 	console.error("Worker App Error:", err);
-	return c.json({ error: err.message || "Internal Server Error", stack: String(err.stack || err) }, 500);
+	return c.json({ error: "Internal Server Error" }, 500);
 });
 
 // Session-based authentication middleware for API routes
@@ -43,10 +47,17 @@ app.use("/api/v1/*", async (c, next) => {
 		path === "/api/v1/auth/me" ||
 		path === "/api/v1/auth/login" ||
 		path === "/api/v1/auth/setup" ||
+		path === "/api/v1/invitations/accept" ||
+		path === "/api/v1/auth/recover" ||
 		path === "/api/v1/auth/logout" ||
 		path.startsWith("/api/v1/external/")
 	) {
 		return next();
+	}
+
+	const origin = c.req.header("origin");
+	if (origin && origin !== new URL(c.req.url).origin) {
+		return c.json({ error: "Forbidden origin" }, 403);
 	}
 
 	const cookie = getCookie(c, "session");
@@ -54,14 +65,22 @@ app.use("/api/v1/*", async (c, next) => {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
 
+	if (!c.env.SESSION_SECRET) {
+		return c.json({ error: "Server misconfigured" }, 500);
+	}
+
 	try {
-		const secret = new TextEncoder().encode(c.env.SESSION_SECRET || "default_session_secret_change_me");
-		await jwtVerify(cookie, secret);
+		const payload = await verifySessionToken(cookie, c.env);
+		c.set("userId", String(payload.id));
+		c.set("role", String(payload.role ?? "owner"));
 		return next();
 	} catch {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
 });
+
+app.route("/api/v1/audit", auditApi);
+app.route("/api/v1/users", usersApi);
 
 // Mount the API routes
 app.route("/", apiApp);
@@ -75,11 +94,14 @@ app.all("/agents/*", async (c) => {
 		return c.json({ error: "Forbidden origin" }, 403);
 	}
 	const cookie = getCookie(c, "session");
-	if (!cookie || !c.env.SESSION_SECRET) {
+	if (!cookie) {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
+	if (!c.env.SESSION_SECRET) {
+		return c.json({ error: "Server misconfigured" }, 500);
+	}
 	try {
-		await jwtVerify(cookie, new TextEncoder().encode(c.env.SESSION_SECRET));
+		await verifySessionToken(cookie, c.env);
 	} catch {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
@@ -116,8 +138,20 @@ app.all("*", (c) => {
 export { EmailAgent } from "./agent/index";
 
 // Export the Hono app as default export with email trigger handler
+async function runMaintenance(env: Env): Promise<void> {
+	await ensureDbInitialized(env.DB);
+	await env.DB.batch([
+		env.DB.prepare("DELETE FROM audit_events WHERE created_at < datetime('now', '-90 days')"),
+		env.DB.prepare("DELETE FROM login_attempts WHERE bucket < CAST(strftime('%s', 'now') AS INTEGER) / 900 - 2"),
+		env.DB.prepare("DELETE FROM intake_attempts WHERE bucket < CAST(strftime('%s', 'now') AS INTEGER) / 60 - 2"),
+	]);
+}
+
 export default {
 	fetch: app.fetch,
+	async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+		ctx.waitUntil(Promise.all([processScheduledDrafts(env), runMaintenance(env)]));
+	},
 	async email(
 		event: InboundEmailEvent,
 		env: Env,

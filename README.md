@@ -5,7 +5,7 @@
 
 Agentic Inbox lets you send, receive, and manage emails through a modern web interface — all powered by your own Cloudflare account. Incoming emails arrive via [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/), all mailbox data is stored in [Cloudflare D1](https://developers.cloudflare.com/d1/) (SQLite), and the AI agent runs in its own [Durable Object](https://developers.cloudflare.com/durable-objects/).
 
-An **AI-powered Email Agent** can read your inbox, search conversations, and draft replies — built with the [Cloudflare Agents SDK](https://developers.cloudflare.com/agents/) and [Workers AI](https://developers.cloudflare.com/workers-ai/).
+An **AI-powered Email Agent** can read your inbox, search conversations, and draft replies — built with the [Cloudflare Agents SDK](https://developers.cloudflare.com/agents/), Workers AI, and optional OpenRouter primary inference.
 
 ![Agentic Inbox screenshot](./demo_app.png)
 
@@ -23,9 +23,9 @@ Deploy to Cloudflare. The flow provisions D1, Durable Objects, and Workers AI au
 
 In the Cloudflare dashboard go to your domain › Email Routing and create a catch-all rule that forwards to this Worker.
 
-### 3. Enable outbound email
+### 3. Configure outbound email
 
-The Worker needs the `send_email` binding to send outbound emails. See the [Email Service docs](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/).
+Outbound API, tool, and automation sends use SMTP. Set `SMTP_USER`, `SMTP_PASS`, and the SMTP host/port in `.dev.vars` or your Worker environment. The repository's current code does not require a `send_email` binding.
 
 ### 4. First run — create the owner account
 
@@ -51,7 +51,7 @@ From the home screen, create a mailbox for any address on your configured domain
 
 - **Frontend:** React 19, React Router v7, Tailwind CSS v4, Zustand, TipTap, `@cloudflare/kumo`
 - **Backend:** Hono, Cloudflare Workers, D1 (SQLite), Email Routing / Email Service
-- **AI Agent:** Cloudflare Agents SDK (`AIChatAgent`), AI SDK v6, Workers AI (`@cf/moonshotai/kimi-k2.5`), Durable Objects
+- **AI Agent:** Cloudflare Agents SDK (`AIChatAgent`), AI SDK v6, optional OpenRouter primary (`openrouter/free` by default), Workers AI fallback, Durable Objects
 - **Auth:** Session-based authentication (JWT cookie, `SESSION_SECRET`); owner-only hierarchy and settings routes use an independent session check
 
 ## Getting Started
@@ -66,6 +66,7 @@ npm run dev
 1. Set your domain(s) in `wrangler.jsonc` under `vars.DOMAINS`
 2. Set `SESSION_SECRET` as a Worker secret: `wrangler secret put SESSION_SECRET`
 3. Ensure a D1 database is bound as `DB` in `wrangler.jsonc`
+4. To enable OpenRouter primary inference, set `OPENROUTER_API_KEY` as a Worker secret; `OPENROUTER_MODEL` defaults to `openrouter/free`
 
 ### Deploy
 
@@ -77,7 +78,6 @@ npm run deploy
 
 - Cloudflare account with a domain
 - [Email Routing](https://developers.cloudflare.com/email-routing/) enabled for receiving
-- [Email Service](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/) enabled for sending
 - [Workers AI](https://developers.cloudflare.com/workers-ai/) enabled (for the agent)
 - D1 database created and bound as `DB`
 

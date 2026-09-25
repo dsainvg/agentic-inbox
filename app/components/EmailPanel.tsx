@@ -12,9 +12,9 @@ import EmailPanelToolbar from "~/components/email-panel/EmailPanelToolbar";
 import EmailSummaryCard from "~/components/EmailSummaryCard";
 import SingleMessageView from "~/components/email-panel/SingleMessageView";
 import ThreadMessage from "~/components/email-panel/ThreadMessage";
-import { splitEmailList, toEmailListValue } from "~/lib/utils";
+import { splitEmailList } from "~/lib/utils";
 import api from "~/services/api";
-import { useDeleteEmail, useEmail, useMoveEmail, useReplyToEmail, useSendEmail, useSummarizeEmail, useThreadReplies, useUpdateEmail } from "~/queries/emails";
+import { useDeleteEmail, useEmail, useMoveEmail, useSummarizeEmail, useThreadReplies, useUpdateEmail } from "~/queries/emails";
 import { useFolders } from "~/queries/folders";
 import { useMailbox } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
@@ -39,8 +39,6 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const updateEmail = useUpdateEmail();
 	const deleteEmailMut = useDeleteEmail();
 	const moveEmailMut = useMoveEmail();
-	const sendEmailMut = useSendEmail();
-	const replyMut = useReplyToEmail();
 	const summarizeMut = useSummarizeEmail();
 	const { data: folders = [] } = useFolders(mailboxId) as { data?: Folder[] };
 	const { data: currentMailbox } = useMailbox(mailboxId) as {
@@ -166,20 +164,8 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 			if (!target.recipient) { toastManager.add({ title: "Cannot send: no recipient set on this draft.", variant: "error" }); return; }
 			const toRecipients = splitEmailList(target.recipient);
 			if (toRecipients.length === 0) { toastManager.add({ title: "Cannot send: no valid recipient set on this draft.", variant: "error" }); return; }
-			const fromName = currentMailbox.settings?.fromName || currentMailbox.name;
-			const from = fromName && fromName !== currentMailbox.email ? { email: currentMailbox.email, name: fromName } : currentMailbox.email;
-			const originalEmail = target.in_reply_to ? allMessages.find((msg) => msg.id === target.in_reply_to) : undefined;
-			const emailData = {
-				to: toEmailListValue(toRecipients),
-				cc: toEmailListValue(splitEmailList(target.cc)),
-				bcc: toEmailListValue(splitEmailList(target.bcc)),
-				from,
-				subject: target.subject || "(no subject)",
-				html: target.body || "",
-				text: target.body ? target.body.replace(/<[^>]*>/g, "").trim() : "",
-			};
-			if (originalEmail) await replyMut.mutateAsync({ mailboxId, emailId: originalEmail.id, email: emailData }); else await sendEmailMut.mutateAsync({ mailboxId, email: emailData });
-			await deleteEmailMut.mutateAsync({ mailboxId, id: target.id });
+			await api.approveDraft(mailboxId, target.id);
+			await api.sendApprovedDraft(mailboxId, target.id, crypto.randomUUID());
 			toastManager.add({ title: "Email sent!" });
 			if (isDraftFolder) closePanel();
 		} catch (err) {

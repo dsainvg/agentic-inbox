@@ -2,10 +2,10 @@ import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
-import { jwtVerify } from "jose";
 import { z } from "zod";
-import type { Env } from "../types";
+import { verifySessionToken } from "../lib/session";
 import { ensureDbInitialized } from "../db/init";
+import type { Env } from "../types";
 import {
 	getEffectiveMemory, getMemory, HIERARCHY_LIMITS as LIMITS, serializeScopedRule,
 	type GroupRow, type MemoryScope, type ScopedRuleRow,
@@ -28,18 +28,15 @@ hierarchyApi.use("*", async (c, next) => {
 	const origin = c.req.header("origin");
 	if (origin && origin !== new URL(c.req.url).origin) return c.json({ error: "Forbidden origin" }, 403);
 	const cookie = getCookie(c, "session");
-	const secret = c.env.SESSION_SECRET;
-	if (!cookie || !secret || secret === "default_session_secret_change_me") return c.json({ error: "Unauthorized" }, 401);
+	if (!cookie) return c.json({ error: "Unauthorized" }, 401);
 	try {
-		const { payload } = await jwtVerify(cookie, new TextEncoder().encode(secret), {
-			algorithms: ["HS256"], requiredClaims: ["exp", "iat"],
-		});
+		const payload = await verifySessionToken(cookie, c.env, false);
 		if (payload.id !== "admin") return c.json({ error: "Owner session required" }, 403);
+		await ensureDbInitialized(c.env.DB);
+		if (!await c.env.DB.prepare(`SELECT id FROM users WHERE id = 'admin'`).first()) return c.json({ error: "Owner session required" }, 403);
 	} catch {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
-	await ensureDbInitialized(c.env.DB);
-	if (!await c.env.DB.prepare(`SELECT id FROM users WHERE id = 'admin'`).first()) return c.json({ error: "Owner session required" }, 403);
 	await next();
 });
 hierarchyApi.use("*", bodyLimit({ maxSize: LIMITS.requestBytes, onError: (c) => c.json({ error: "Request too large" }, 413) }));

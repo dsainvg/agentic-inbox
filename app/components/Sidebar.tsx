@@ -498,6 +498,19 @@ export default function Sidebar() {
 				>
 					Sign Out
 				</button>
+				<button
+					type="button"
+					className="w-full text-white/40 hover:text-white/70 text-[12px] transition-colors cursor-pointer bg-transparent border-0 py-1.5"
+					onClick={async () => {
+						try {
+							await api.logoutAll();
+						} finally {
+							window.location.href = "/login";
+						}
+					}}
+				>
+					Sign out all sessions
+				</button>
 			</div>
 		</aside>
 	);

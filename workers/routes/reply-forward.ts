@@ -11,6 +11,7 @@ import type { MailboxContext } from "../lib/mailbox";
 import { ensureDbInitialized } from "../db/init";
 import { Folders } from "../../shared/folders";
 import { sendSmtpEmail } from "../lib/smtp";
+import { recordAuditEvent } from "../lib/audit";
 
 type AppContext = Context<MailboxContext>;
 
@@ -321,6 +322,9 @@ export async function handleSaveDraft(c: AppContext) {
 		.limit(1);
 
 	if (existing.length > 0) {
+		if (existing[0].draft_status === "sent") {
+			return c.json({ error: "Sent drafts cannot be edited" }, 409);
+		}
 		await db
 			.update(schema.emails)
 			.set({
@@ -332,11 +336,17 @@ export async function handleSaveDraft(c: AppContext) {
 				date: new Date().toISOString(),
 				in_reply_to: in_reply_to || existing[0].in_reply_to,
 				thread_id: thread_id || existing[0].thread_id,
+				draft_status: "needs_review",
+				approved_at: null,
+				scheduled_at: null,
+				last_send_error: null,
+				idempotency_key: null,
 			})
 			.where(
 				and(
 					eq(schema.emails.id, targetDraftId),
 					eq(schema.emails.mailbox_id, mailboxId),
+					eq(schema.emails.folder_id, Folders.DRAFT),
 				),
 			);
 	} else {
@@ -355,9 +365,11 @@ export async function handleSaveDraft(c: AppContext) {
 			starred: 0,
 			in_reply_to: in_reply_to || null,
 			thread_id: thread_id || targetDraftId,
+			draft_status: "needs_review",
+			send_attempts: 0,
 		});
 	}
-
+	await recordAuditEvent(c.env.DB, { actorId: "admin", action: "draft.saved", mailboxId, targetType: "email", targetId: targetDraftId, metadata: { status: "needs_review" } });
 	return c.json({ draft_id: targetDraftId }, 201);
 }
 

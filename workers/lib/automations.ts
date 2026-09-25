@@ -14,6 +14,7 @@ import * as schema from "../db/schema";
 import type { Env } from "../types";
 import { sendSmtpEmail } from "./smtp";
 import { isPromptInjection, runAiWithFallbacks, reviewAutomatedReply } from "./ai";
+import { getOpenRouterConfig } from "./openrouter";
 import { replySubject } from "../../shared/email-subject";
 import { stripHtmlToText } from "./email-helpers";
 import {
@@ -273,8 +274,8 @@ async function sendAiReply(
 	}
 
 	// Security check: Prompt injection scan on incoming email body
-	if (email.body && env.AI) {
-		const injection = await isPromptInjection(env.AI, email.body);
+	if (email.body && (env.AI || getOpenRouterConfig(env))) {
+		const injection = await isPromptInjection(env.AI, email.body, getOpenRouterConfig(env));
 		if (injection) {
 			console.warn(`Automation ${rule.id} AI reply blocked: prompt injection detected`);
 			return "skipped";
@@ -300,7 +301,8 @@ async function sendAiReply(
 	// Generate the AI reply text using Cloudflare Workers AI with fallback models
 	let generatedReply = "";
 	let usedModel = "";
-	if (env.AI) {
+	const openRouter = getOpenRouterConfig(env);
+	if (env.AI || openRouter) {
 		try {
 			const plainBody = email.body ? stripHtmlToText(email.body).trim().slice(0, 16000) : "";
 			const ownerMemory = await getMemoryPrompt(env.DB, mailboxId);
@@ -329,7 +331,7 @@ ${ownerMemory ? `\n${ownerMemory}` : ""}`;
 				],
 				max_tokens: 1024,
 				temperature: 0.3,
-			});
+			}, undefined, openRouter);
 
 			generatedReply = res.text.trim();
 			usedModel = res.model;
@@ -338,7 +340,7 @@ ${ownerMemory ? `\n${ownerMemory}` : ""}`;
 			const approved = await reviewAutomatedReply(env.AI, generatedReply, {
 				ownerGuidance: `${ownerMemory}\n${customGuidance}`,
 				email: { from: email.from.slice(0, 1000), subject: email.subject.slice(0, 2000), body: plainBody },
-			});
+			}, openRouter);
 			if (!approved) {
 				console.warn(`Automation ${rule.id} AI reply blocked: 3H review not approved; owner review required`);
 				return "failed";
@@ -425,6 +427,7 @@ export async function executeAutomations(
 	mailboxId: string,
 	email: AutomationEmailContext,
 ): Promise<AutomationOutcome> {
+	const startedAt = Date.now();
 	const outcome: AutomationOutcome = { folders: [], markRead: false, starred: false };
 
 	let rule: Rule | null = null;
@@ -501,6 +504,11 @@ export async function executeAutomations(
 		}
 	}
 
+	await env.DB.prepare(`
+		INSERT INTO automation_runs (id, mailbox_id, rule_id, status, folders, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`).bind(crypto.randomUUID(), mailboxId, rule.id, "completed", JSON.stringify(outcome.folders), new Date().toISOString()).run();
+	console.debug("Automation run completed", { ruleId: rule.id, mailboxId, latencyMs: Date.now() - startedAt });
 	return outcome;
 }
 

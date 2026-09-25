@@ -13,6 +13,8 @@ export type MailboxContext = {
 	Bindings: Env;
 	Variables: {
 		mailboxId: string;
+		userId?: string;
+		role?: string;
 	};
 };
 
@@ -25,6 +27,7 @@ export const requireMailbox = createMiddleware<MailboxContext>(async (c, next) =
 	// not a row in the mailboxes table — let it through so the route
 	// handlers can apply their own mailboxId === "all" special-casing.
 	if (mailboxId === "all") {
+		if (c.get("role") && c.get("role") !== "owner") return c.json({ error: "Owner access required for aggregate mailbox" }, 403);
 		c.set("mailboxId", mailboxId);
 		await next();
 		return;
@@ -41,6 +44,10 @@ export const requireMailbox = createMiddleware<MailboxContext>(async (c, next) =
 
 	if (rows.length === 0) {
 		return c.json({ error: "Mailbox not found" }, 404);
+	}
+	if (c.get("role") && c.get("role") !== "owner") {
+		const grant = await c.env.DB.prepare("SELECT 1 FROM mailbox_permissions WHERE user_id = ? AND mailbox_id = ? LIMIT 1").bind(c.get("userId") || "", mailboxId).first();
+		if (!grant) return c.json({ error: "Mailbox access denied" }, 403);
 	}
 
 	c.set("mailboxId", mailboxId);

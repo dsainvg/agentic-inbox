@@ -65,6 +65,7 @@ async function migrateFolders(db: D1Database) {
 							WHEN 'drafts' THEN 'draft'
 							WHEN 'archive' THEN 'archive'
 							WHEN 'trash' THEN 'trash'
+							WHEN 'quarantine' THEN 'quarantine'
 							ELSE trim(f.name)
 						END AS name,
 						CASE
@@ -86,6 +87,49 @@ async function migrateFolders(db: D1Database) {
 	}
 }
 
+async function migrateUsers(db: D1Database) {
+	const columns = await db.prepare(`PRAGMA table_info(users)`).all<{ name: string }>();
+	const names = new Set(columns.results.map((column) => column.name));
+	const additions: Array<[string, string]> = [
+		["email", "TEXT"],
+		["role", "TEXT NOT NULL DEFAULT 'owner'"],
+		["status", "TEXT NOT NULL DEFAULT 'active'"],
+		["session_version", "INTEGER NOT NULL DEFAULT 0"],
+		["recovery_code_hash", "TEXT"],
+	];
+	for (const [name, definition] of additions) {
+		if (names.has(name)) continue;
+		await db.prepare(`ALTER TABLE users ADD COLUMN ${name} ${definition}`).run();
+	}
+	await db.prepare("UPDATE users SET email = 'admin@local' WHERE id = 'admin' AND (email IS NULL OR email = '')").run();
+}
+
+async function migrateApiKeys(db: D1Database) {
+	const columns = await db.prepare(`PRAGMA table_info(api_keys)`).all<{ name: string }>();
+	if (!columns.results.some((column) => column.name === "key_hash")) {
+		await db.prepare("ALTER TABLE api_keys ADD COLUMN key_hash TEXT").run();
+	}
+}
+
+async function migrateEmails(db: D1Database) {
+	const columns = await db.prepare(`PRAGMA table_info(emails)`).all<{ name: string }>();
+	const names = new Set(columns.results.map((column) => column.name));
+	const additions: Array<[string, string]> = [
+		["draft_status", "TEXT"],
+		["approved_at", "TEXT"],
+		["scheduled_at", "TEXT"],
+		["sent_at", "TEXT"],
+		["send_attempts", "INTEGER NOT NULL DEFAULT 0"],
+		["last_send_error", "TEXT"],
+		["idempotency_key", "TEXT"],
+		["draft_receipt", "TEXT"],
+	];
+	for (const [name, definition] of additions) {
+		if (names.has(name)) continue;
+		await db.prepare(`ALTER TABLE emails ADD COLUMN ${name} ${definition}`).run();
+	}
+}
+
 async function initialize(db: D1Database) {
 	try {
 		await db.batch([
@@ -103,6 +147,7 @@ async function initialize(db: D1Database) {
 				CREATE TABLE IF NOT EXISTS api_keys (
 					id TEXT PRIMARY KEY,
 					key TEXT NOT NULL UNIQUE,
+					key_hash TEXT,
 					name TEXT NOT NULL,
 					mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
 					created_at TEXT NOT NULL
@@ -134,19 +179,179 @@ async function initialize(db: D1Database) {
 					email_references TEXT,
 					thread_id TEXT,
 					message_id TEXT,
-					raw_headers TEXT
+					raw_headers TEXT,
+					draft_status TEXT,
+					approved_at TEXT,
+					scheduled_at TEXT,
+					sent_at TEXT,
+					send_attempts INTEGER NOT NULL DEFAULT 0,
+					last_send_error TEXT,
+					idempotency_key TEXT,
+					draft_receipt TEXT
 				);
 			`),
 			db.prepare(`
 				CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 			`),
 			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+			`),
+			db.prepare(`
 				CREATE INDEX IF NOT EXISTS idx_emails_mailbox_folder ON emails(mailbox_id, folder_id);
+			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_emails_draft_status ON emails(mailbox_id, folder_id, draft_status, scheduled_at);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS user_invitations (
+					id TEXT PRIMARY KEY,
+					email TEXT NOT NULL,
+					role TEXT NOT NULL CHECK (role IN ('operator', 'read_only')),
+					token_hash TEXT NOT NULL UNIQUE,
+					expires_at TEXT NOT NULL,
+					accepted_at TEXT,
+					created_by TEXT NOT NULL,
+					created_at TEXT NOT NULL
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS mailbox_permissions (
+					user_id TEXT NOT NULL,
+					mailbox_id TEXT NOT NULL,
+					role TEXT NOT NULL CHECK (role IN ('operator', 'read_only')),
+					created_at TEXT NOT NULL,
+					PRIMARY KEY (user_id, mailbox_id),
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+					FOREIGN KEY (mailbox_id) REFERENCES mailboxes(id) ON DELETE CASCADE
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS attachments (
+					id TEXT PRIMARY KEY,
+					mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+					email_id TEXT NOT NULL,
+					filename TEXT NOT NULL,
+					mime_type TEXT NOT NULL,
+					size INTEGER NOT NULL,
+					r2_key TEXT NOT NULL UNIQUE,
+					content_id TEXT,
+					disposition TEXT,
+					scan_status TEXT NOT NULL DEFAULT 'pending',
+					created_at TEXT NOT NULL
+				);
+			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_attachments_email ON attachments(mailbox_id, email_id);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS email_analyses (
+					id TEXT PRIMARY KEY,
+					mailbox_id TEXT NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
+					email_id TEXT NOT NULL,
+					thread_id TEXT,
+					model TEXT NOT NULL,
+					classification TEXT NOT NULL,
+					confidence TEXT NOT NULL,
+					summary TEXT NOT NULL,
+					action_items TEXT NOT NULL DEFAULT '[]',
+					evidence TEXT NOT NULL DEFAULT '[]',
+					suggested_folder TEXT,
+					previous_folder TEXT,
+					applied_folder TEXT,
+					applied_at TEXT,
+					created_at TEXT NOT NULL
+				);
+			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_email_analyses_mailbox ON email_analyses(mailbox_id, email_id, created_at DESC);
 			`),
 			db.prepare(`
 				CREATE TABLE IF NOT EXISTS users (
 					id TEXT PRIMARY KEY,
+					email TEXT NOT NULL UNIQUE,
+					role TEXT NOT NULL DEFAULT 'owner',
+					status TEXT NOT NULL DEFAULT 'active',
 					password_hash TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					session_version INTEGER NOT NULL DEFAULT 0,
+					recovery_code_hash TEXT
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS login_attempts (
+					key_hash TEXT NOT NULL,
+					bucket INTEGER NOT NULL,
+					attempt_count INTEGER NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (key_hash, bucket)
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS intake_attempts (
+					key_hash TEXT NOT NULL,
+					bucket INTEGER NOT NULL,
+					attempt_count INTEGER NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (key_hash, bucket)
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS audit_events (
+					id TEXT PRIMARY KEY,
+					actor_id TEXT,
+					action TEXT NOT NULL,
+					mailbox_id TEXT,
+					target_type TEXT,
+					target_id TEXT,
+					result TEXT NOT NULL CHECK (result IN ('success', 'failure', 'denied')),
+					metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata) AND json_type(metadata) = 'object'),
+					created_at TEXT NOT NULL
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS thread_metadata (
+					mailbox_id TEXT NOT NULL,
+					thread_id TEXT NOT NULL,
+					snoozed_until TEXT,
+					follow_up_at TEXT,
+					pinned INTEGER NOT NULL DEFAULT 0,
+					next_action TEXT,
+					waiting_for TEXT,
+					waiting_on_me INTEGER NOT NULL DEFAULT 0,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (mailbox_id, thread_id)
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS reminders (
+					id TEXT PRIMARY KEY,
+					mailbox_id TEXT NOT NULL,
+					thread_id TEXT NOT NULL,
+					due_at TEXT NOT NULL,
+					message TEXT NOT NULL,
+					status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'dismissed')),
+					created_at TEXT NOT NULL,
+					completed_at TEXT
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS saved_searches (
+					id TEXT PRIMARY KEY,
+					mailbox_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					query TEXT NOT NULL,
+					filters TEXT NOT NULL DEFAULT '{}',
+					created_at TEXT NOT NULL
+				);
+			`),
+			db.prepare(`
+				CREATE TABLE IF NOT EXISTS automation_runs (
+					id TEXT PRIMARY KEY,
+					mailbox_id TEXT NOT NULL,
+					rule_id TEXT,
+					status TEXT NOT NULL,
+					folders TEXT NOT NULL DEFAULT '[]',
 					created_at TEXT NOT NULL
 				);
 			`),
@@ -164,9 +369,24 @@ async function initialize(db: D1Database) {
 			db.prepare(`
 				CREATE INDEX IF NOT EXISTS idx_automation_rules_mailbox ON automation_rules(mailbox_id);
 			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_invitations_token ON user_invitations(token_hash, expires_at);
+			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_automation_runs_created ON automation_runs(mailbox_id, created_at DESC);
+			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(mailbox_id, status, due_at);
+			`),
+			db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);
+			`),
 		]);
 		await migrateAutomationRules(db);
 		await migrateFolders(db);
+		await migrateUsers(db);
+		await migrateApiKeys(db);
+		await migrateEmails(db);
 		// Ensure standard system folders exist for all mailboxes
 		await db
 			.prepare(

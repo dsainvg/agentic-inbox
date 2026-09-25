@@ -4,8 +4,8 @@
 
 - Cloudflare account with a domain
 - [Email Routing](https://developers.cloudflare.com/email-routing/) enabled for receiving
-- [Email Service](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/) enabled for sending
 - [Workers AI](https://developers.cloudflare.com/workers-ai/) enabled
+- Optional: an OpenRouter API key for primary inference
 - Wrangler CLI installed (`npm install -g wrangler` or use `npx wrangler`)
 
 ## 1. Deploy to Cloudflare
@@ -39,13 +39,23 @@ wrangler secret put SESSION_SECRET
 
 Enter a long random string (at least 32 characters). This signs all session JWT cookies.
 
+To enable OpenRouter primary inference, set the API key as a secret:
+
+```bash
+wrangler secret put OPENROUTER_API_KEY
+```
+
+`OPENROUTER_MODEL` defaults to `openrouter/free`; override it only when you want a different OpenRouter model. Cloudflare AI remains the fallback when OpenRouter is unavailable.
+
+For the public mailbox intake endpoint, set `EXTERNAL_INTAKE_TOKEN` as a secret and send it as `X-Intake-Token`. Public submissions are rate-limited and stored in the mailbox's `quarantine` folder until the owner moves them into the inbox.
+
 ## 4. Configure Email Routing
 
 In the Cloudflare dashboard, go to your domain › Email Routing and create a **catch-all** rule that forwards to your deployed Worker.
 
-## 5. Enable outbound email (send_email binding)
+## 5. Configure outbound email (SMTP)
 
-Follow the [Email Service docs](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/) to enable the `send_email` binding on your Worker.
+Outbound API, tool, and automation sends use `workers/lib/smtp.ts`. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS` in `.dev.vars` or your Worker environment. The current code does not use the `send_email` binding.
 
 ## 6. First run — create the owner account
 

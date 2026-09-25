@@ -16,6 +16,7 @@ export default function LoginRoute() {
 	const [isLoading, setIsLoading] = useState(true);
 	const [setupRequired, setSetupRequired] = useState(false);
 	const [password, setPassword] = useState("");
+	const [email, setEmail] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
 	const [error, setError] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,7 +45,7 @@ export default function LoginRoute() {
 		setIsSubmitting(true);
 
 		try {
-			const res = await api.login(password);
+			const res = await api.login(password, email || undefined);
 			if (res.success) {
 				window.location.href = "/";
 			} else {
@@ -147,6 +148,14 @@ export default function LoginRoute() {
 					</form>
 				) : (
 					<form onSubmit={handleLogin} className="space-y-4">
+						<Input
+							label="Email (optional)"
+							type="email"
+							placeholder="admin@example.com"
+							value={email}
+							onChange={(e) => setEmail(e.target.value)}
+							size="sm"
+						/>
 						<Input
 							label="Admin Password"
 							type="password"

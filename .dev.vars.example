@@ -10,4 +10,16 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@example.com
 SMTP_PASS=your-app-password
-SESSION_SECRET=session-secret
+SESSION_SECRET=replace-with-a-long-random-secret
+
+# Optional public intake protection. Required for POST /api/v1/external/mailboxes/:mailboxId/messages.
+EXTERNAL_INTAKE_TOKEN=replace-with-a-random-intake-token
+
+# Optional attachment scanner. Without this, allowed files stay pending until owner release.
+# ATTACHMENT_SCAN_ENDPOINT=https://scanner.example.internal/scan
+# ATTACHMENT_SCAN_TOKEN=replace-with-a-scanner-token
+
+# Optional OpenRouter primary. The API key is required; the model defaults to openrouter/free.
+OPENROUTER_API_KEY=your-openrouter-api-key
+OPENROUTER_MODEL=openrouter/free
+# OPENROUTER_BASE_URL=https://openrouter.ai/api/v1

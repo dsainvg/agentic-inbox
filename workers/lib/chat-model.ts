@@ -1,26 +1,29 @@
 import { wrapLanguageModel } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { CLOUDFLARE_AI_MODELS } from "./ai";
+import { OpenRouterChatModel, type OpenRouterConfig } from "./openrouter";
 
 /** Retry only stream establishment, never a partially delivered tool/text stream. */
-export function createChatModel(ai: Ai) {
+export function createChatModel(ai: Ai | undefined, openRouter?: OpenRouterConfig) {
 	const provider = createWorkersAI({ binding: {
-		// Keep non-serializable SDK options (notably AbortSignal) off the AI RPC boundary.
-		// Cancellation is enforced by the SDK and startup race below.
 		run: async (model: string, inputs: unknown) => {
+			if (!ai) throw new Error("Cloudflare Workers AI is not configured");
 			const response = await ai.run(model as any, JSON.parse(JSON.stringify(inputs)));
 			if (!(response instanceof ReadableStream)) return response;
 			return normalizeAiStream(response);
 		},
 	} as Ai });
-	// Keep chat fallbacks tool-capable; the smaller text-only fallbacks are unsuitable.
-	const models = [CLOUDFLARE_AI_MODELS.PRIMARY, CLOUDFLARE_AI_MODELS.FALLBACKS[0]];
+	const models = [
+		...(openRouter ? [{ id: `openrouter/${openRouter.model}`, model: new OpenRouterChatModel(openRouter) }] : []),
+		{ id: CLOUDFLARE_AI_MODELS.PRIMARY, model: provider(CLOUDFLARE_AI_MODELS.PRIMARY as any) },
+		{ id: CLOUDFLARE_AI_MODELS.FALLBACKS[0], model: provider(CLOUDFLARE_AI_MODELS.FALLBACKS[0] as any) },
+	];
 	return wrapLanguageModel({
-		model: provider(models[0] as any),
+		model: models[0].model as any,
 		middleware: {
 			specificationVersion: "v3",
 			wrapStream: async ({ params }) => {
-				for (const [index, modelId] of models.entries()) {
+				for (const [index, entry] of models.entries()) {
 					params.abortSignal?.throwIfAborted();
 					const controller = new AbortController();
 					const signal = params.abortSignal
@@ -30,7 +33,7 @@ export function createChatModel(ai: Ai) {
 					let onAbort: (() => void) | undefined;
 					try {
 						return await Promise.race([
-							provider(modelId as any).doStream({ ...params, abortSignal: signal }),
+							entry.model.doStream({ ...params, abortSignal: signal }),
 							new Promise<never>((_, reject) => {
 								onAbort = () => reject(signal.reason);
 								signal.addEventListener("abort", onAbort, { once: true });
@@ -40,13 +43,13 @@ export function createChatModel(ai: Ai) {
 						]);
 					} catch (error) {
 						console.error("[Chat startup failure]", {
-							model: modelId,
+							model: entry.id,
 							message: error instanceof Error ? error.message : String(error),
 							stack: error instanceof Error ? error.stack : undefined,
 						});
 						params.abortSignal?.throwIfAborted();
 						if (index === models.length - 1) throw error;
-						console.warn(`[Chat] Model ${modelId} failed before streaming; trying fallback.`);
+						console.warn(`[Chat] Model ${entry.id} failed before streaming; trying fallback.`);
 					} finally {
 						clearTimeout(timer);
 						if (onAbort) signal.removeEventListener("abort", onAbort);
@@ -85,4 +88,3 @@ export function normalizeAiStream(stream: ReadableStream<Uint8Array>): ReadableS
 		flush(controller) { if (pending) controller.enqueue(normalizeLine(pending)); },
 	})).pipeThrough(new TextEncoderStream());
 }
-

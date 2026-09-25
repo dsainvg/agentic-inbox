@@ -9,7 +9,6 @@ Most `/api/v1/*` routes require a valid `session` JWT cookie (obtained via `/api
 External endpoints accept a mailbox-scoped API key via:
 - `X-API-Key: <key>` header
 - `Authorization: Bearer <key>` header
-- `?apiKey=<key>` query param (external deposit endpoints only)
 
 ---
 
@@ -274,7 +273,7 @@ Deposit a message using a mailbox API key.
 ```
 
 ### `POST /api/v1/external/mailboxes/:mailboxId/messages`
-Deposit a message into a specific mailbox (open — no key required).
+Deposit a message into a specific mailbox. Configure `EXTERNAL_INTAKE_TOKEN` and send it as `X-Intake-Token`; submissions are rate-limited and stored in the mailbox's `quarantine` folder without running automations.
 
 Same body as above.
 
